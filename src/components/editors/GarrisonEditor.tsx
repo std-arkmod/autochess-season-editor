@@ -4,7 +4,7 @@ import {
   Table, MultiSelect,
 } from '@mantine/core'
 import { IconEdit, IconPlus, IconTrash } from '@tabler/icons-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { eventTypeLabel, getCharName, getChessName } from '../../store/utils'
 import { RichTextPreview } from '../shared/RichTextPreview'
 import type { DataStore } from '../../store/dataStore'
@@ -13,9 +13,16 @@ import type { GarrisonDataDict, EventType } from '../../autochess-season-data'
 interface Props { store: DataStore }
 
 export function GarrisonEditor({ store }: Props) {
-  const { activeSeason, activeSeasonId, updateSeason } = store
+  const { activeSeason, activeSeasonId, updateSeason, navigateTo, focusId, setFocusId } = store
   const [editingId, setEditingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    if (focusId && activeSeason?.data.garrisonDataDict && focusId in activeSeason.data.garrisonDataDict) {
+      setEditingId(focusId)
+      setFocusId(null)
+    }
+  }, [focusId, activeSeason, setFocusId])
 
   if (!activeSeason) return <Text c="dimmed">请先加载赛季数据</Text>
 
@@ -298,6 +305,17 @@ export function GarrisonEditor({ store }: Props) {
               }}
               maxDropdownHeight={200}
             />
+            <Group gap="xs" wrap="wrap">
+              {linkedChess.map(chessId => {
+                const normalId = activeSeason.data.chessNormalIdLookupDict?.[chessId] ?? chessId
+                return (
+                  <Badge key={chessId} variant="light" color="teal" size="sm" style={{ cursor: 'pointer' }}
+                    onClick={() => navigateTo('chess', normalId)}>
+                    {getChessName(chessId, charShopChessDatas, activeSeason.data.chessNormalIdLookupDict)} ↗
+                  </Badge>
+                )
+              })}
+            </Group>
           </Stack>
         ) : (
           <Card withBorder padding="xl" ta="center">

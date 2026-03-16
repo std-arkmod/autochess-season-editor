@@ -248,6 +248,15 @@ export function ChessEditor({ store }: Props) {
           onChange={v => patchChess(chessId, { garrisonIds: v.length > 0 ? v : null })}
           maxDropdownHeight={200}
         />
+        <Group gap="xs" wrap="wrap">
+          {(chess.garrisonIds ?? []).map(gid => (
+            <Badge key={gid} variant="light" color="blue" size="sm" style={{ cursor: 'pointer' }}
+              onClick={() => navigateTo('garrison', gid)}>
+              {garrisonDataDict?.[gid]?.garrisonDesc.replace(/<[^>]+>/g, '').slice(0, 20) ?? gid} ↗
+            </Badge>
+          ))}
+          {(chess.garrisonIds ?? []).length === 0 && <Text size="xs" c="dimmed">无特质</Text>}
+        </Group>
       </Stack>
     )
   }
