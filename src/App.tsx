@@ -1,7 +1,10 @@
-import { Group, ScrollArea, Text, Box, Title } from '@mantine/core'
+import { Group, ScrollArea, Text, Box, Title, ActionIcon, Tooltip } from '@mantine/core'
+import { useHotkeys, useDisclosure } from '@mantine/hooks'
+import { IconArrowLeft, IconArrowRight, IconHistory } from '@tabler/icons-react'
 import { useDataStore } from './store/dataStore'
 import { SeasonTabs } from './components/SeasonTabs'
 import { Sidebar } from './components/Sidebar'
+import { HistoryPanel } from './components/HistoryPanel'
 import { OverviewEditor } from './components/editors/OverviewEditor'
 import { ModesEditor } from './components/editors/ModesEditor'
 import { BondsEditor } from './components/editors/BondsEditor'
@@ -30,7 +33,14 @@ const moduleTitles: Record<string, string> = {
 
 export default function App() {
   const store = useDataStore()
-  const { activeModule, setActiveModule } = store
+  const { activeModule, setActiveModule, canGoBack, canGoForward, historyBack, historyForward } = store
+  const [historyOpened, { open: openHistory, close: closeHistory }] = useDisclosure(false)
+
+  // Alt+Left / Alt+Right 快捷键
+  useHotkeys([
+    ['alt+ArrowLeft', () => { if (canGoBack) historyBack() }],
+    ['alt+ArrowRight', () => { if (canGoForward) historyForward() }],
+  ])
 
   function renderEditor() {
     switch (activeModule) {
@@ -67,6 +77,39 @@ export default function App() {
           自走棋赛季编辑器
         </Title>
         <Text size="xs" c="dimmed">AutoChess Season Data Editor</Text>
+
+        {/* 历史导航按钮 */}
+        <Group gap={4} ml="auto">
+          <Tooltip label="后退 (Alt+←)" openDelay={400}>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              disabled={!canGoBack}
+              onClick={historyBack}
+            >
+              <IconArrowLeft size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="前进 (Alt+→)" openDelay={400}>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              disabled={!canGoForward}
+              onClick={historyForward}
+            >
+              <IconArrowRight size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="导航历史" openDelay={400}>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              onClick={openHistory}
+            >
+              <IconHistory size={16} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
       </Group>
 
       {/* Season Tabs */}
@@ -99,6 +142,9 @@ export default function App() {
           </ScrollArea>
         </Box>
       </Box>
+
+      {/* History Panel Drawer */}
+      <HistoryPanel store={store} opened={historyOpened} onClose={closeHistory} />
     </Box>
   )
 }

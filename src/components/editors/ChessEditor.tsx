@@ -74,11 +74,20 @@ export function ChessEditor({ store }: Props) {
   const { charShopChessDatas, charChessDataDict, bondInfoDict, chessNormalIdLookupDict } = activeSeason?.data ?? {}
 
   useEffect(() => {
-    if (focusId && charShopChessDatas && focusId in charShopChessDatas) {
+    if (!focusId) return
+    // 直接是 _a
+    if (charShopChessDatas && focusId in charShopChessDatas) {
       setEditingId(focusId)
       setFocusId(null)
+      return
     }
-  }, [focusId, charShopChessDatas, setFocusId])
+    // 是 _b，找对应 _a
+    const normalId = chessNormalIdLookupDict?.[focusId]
+    if (normalId && charShopChessDatas && normalId in charShopChessDatas) {
+      setEditingId(normalId)
+      setFocusId(null)
+    }
+  }, [focusId, charShopChessDatas, chessNormalIdLookupDict, setFocusId])
 
   if (!activeSeason || !charShopChessDatas || !charChessDataDict) {
     return <Text c="dimmed">请先加载赛季数据</Text>

@@ -3,12 +3,12 @@ import {
   ActionIcon, Title, TextInput, MultiSelect, Divider,
   ScrollArea, Tooltip, Box, Button, Modal, Select,
 } from '@mantine/core'
-import { IconEdit, IconTrash, IconPlus, IconExternalLink } from '@tabler/icons-react'
+import { IconTrash, IconPlus, IconExternalLink } from '@tabler/icons-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import type { BondInfoDict, ActiveCondition, ActiveType } from '../../autochess-season-data'
-import { activeConditionLabel, getCharName } from '../../store/utils'
+import type { BondInfoDict, ActiveCondition } from '../../autochess-season-data'
+import { getChessName } from '../../store/utils'
 import { RichTextPreview } from '../shared/RichTextPreview'
 import type { DataStore } from '../../store/dataStore'
 
@@ -53,15 +53,7 @@ export function BondsEditor({ store }: Props) {
   if (!activeSeason) return <Text c="dimmed">请先加载赛季数据</Text>
 
   const bonds = activeSeason.data.bondInfoDict
-  const { charShopChessDatas, effectInfoDataDict } = activeSeason.data
-
-  const chessNames = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const [chessId, shopData] of Object.entries(charShopChessDatas)) {
-      map[chessId] = getCharName(shopData.charId)
-    }
-    return map
-  }, [charShopChessDatas])
+  const { charShopChessDatas, effectInfoDataDict, chessNormalIdLookupDict } = activeSeason.data
 
   const bondList = Object.values(bonds).sort((a, b) => a.identifier - b.identifier)
   const filtered = search
@@ -113,13 +105,15 @@ export function BondsEditor({ store }: Props) {
     notifications.show({ title: '已删除', message: `盟约 ${id} 已删除`, color: 'orange' })
   }
 
-  const allChessOptions = Object.entries(charShopChessDatas)
+  // MultiSelect data 只用 _a（charShopChessDatas 的 key），保持不变
+  const allChessOptions = useMemo(() => Object.entries(charShopChessDatas)
     .filter(([, v]) => !v.isHidden)
     .map(([chessId]) => ({
       value: chessId,
-      label: `${chessNames[chessId] ?? chessId}`,
+      label: getChessName(chessId, charShopChessDatas, chessNormalIdLookupDict),
     }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+  [charShopChessDatas, chessNormalIdLookupDict])
 
   const effectOptions = [
     { value: '', label: '（无）' },
@@ -276,26 +270,31 @@ export function BondsEditor({ store }: Props) {
               )}
 
               <Divider label={`所属棋子（${editing.chessIdList.length} 个）`} labelPosition="left" />
+              {/* _b normalize: MultiSelect value 里的 _b 转成 _a，这样选中值与 data 对齐 */}
               <MultiSelect
                 placeholder="选择棋子..."
                 searchable
-                value={editing.chessIdList}
+                value={editing.chessIdList.map(id => chessNormalIdLookupDict?.[id] ?? id)}
                 data={allChessOptions}
                 onChange={v => patchBond(editing.bondId, { chessIdList: v })}
                 maxDropdownHeight={200}
               />
               <Group gap="xs" wrap="wrap">
-                {editing.chessIdList.map(chessId => (
-                  <Tooltip key={chessId} label={chessId}>
-                    <Badge
-                      variant="light" color="teal" size="sm"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => navigateTo('chess', chessId)}
-                    >
-                      {chessNames[chessId] ?? chessId} ↗
-                    </Badge>
-                  </Tooltip>
-                ))}
+                {editing.chessIdList.map(chessId => {
+                  // _b → _a for navigation
+                  const normalId = chessNormalIdLookupDict?.[chessId] ?? chessId
+                  return (
+                    <Tooltip key={chessId} label={chessId}>
+                      <Badge
+                        variant="light" color="teal" size="sm"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => navigateTo('chess', normalId)}
+                      >
+                        {getChessName(chessId, charShopChessDatas, chessNormalIdLookupDict)} ↗
+                      </Badge>
+                    </Tooltip>
+                  )
+                })}
               </Group>
 
               <Divider label="激活参数" labelPosition="left" />

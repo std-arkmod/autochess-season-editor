@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm add:*)"
+      "Bash(pnpm add:*)",
+      "Bash(tree:*)",
+      "Bash(npm run build)"
     ]
   }
 }

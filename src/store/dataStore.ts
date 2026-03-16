@@ -6,6 +6,17 @@ export interface SeasonSlot {
   label: string
   data: AutoChessSeasonData
   isDirty: boolean
+  /** Web FS API 目录句柄（页面刷新后丢失，需重新授权） */
+  fsHandle?: FileSystemDirectoryHandle
+  /** 最后一次由我们自己写入目录的时间戳（ms）——供外部变更检测对比 */
+  fsSavedAt?: number
+  /** FS 同步状态 */
+  fsSyncStatus?: 'synced' | 'saving' | 'unsaved'
+  /**
+   * 刷新后需要重新授权的目录名（持久化到 localStorage，提示用户重新绑定）
+   * 仅存名字，不存句柄（句柄不可序列化）
+   */
+  fsHandleName?: string
 }
 
 export type ActiveModule =
@@ -20,6 +31,20 @@ export type ActiveModule =
   | 'garrison'
   | 'rewards'
   | 'diff'
+
+/** 历史条目 */
+export interface NavEntry {
+  module: ActiveModule
+  focusId: string | null
+  label?: string
+}
+
+interface TabHistory {
+  stack: NavEntry[]
+  cursor: number
+}
+
+const MAX_HISTORY = 50
 
 const LS_KEY = 'autochess_editor_seasons'
 const LS_ACTIVE_KEY = 'autochess_editor_active'
@@ -36,9 +61,10 @@ function loadFromStorage(): SeasonSlot[] {
 
 function saveToStorage(seasons: SeasonSlot[]) {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(seasons))
+    // fsHandle 不可序列化，不存；其余字段都存
+    const toSave = seasons.map(({ fsHandle, ...rest }) => rest)
+    localStorage.setItem(LS_KEY, JSON.stringify(toSave))
   } catch (e) {
-    // localStorage 满了就算了
     console.warn('localStorage save failed:', e)
   }
 }
@@ -48,21 +74,19 @@ export function useDataStore() {
   const [activeSeasonId, setActiveSeasonId] = useState<string | null>(() => {
     const stored = localStorage.getItem(LS_ACTIVE_KEY)
     const loaded = loadFromStorage()
-    // 确保存储的 activeId 仍然存在
     if (stored && loaded.some(s => s.id === stored)) return stored
     return loaded.length > 0 ? loaded[0].id : null
   })
   const [activeModule, setActiveModule] = useState<ActiveModule>('overview')
   const [focusId, setFocusId] = useState<string | null>(null)
+  const [tabHistories, setTabHistories] = useState<Record<string, TabHistory>>({})
 
-  // 防抖保存到 localStorage
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 防抖保存到 localStorage（仅在 seasons 变化时）
+  const lsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      saveToStorage(seasons)
-    }, 800)
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
+    if (lsTimer.current) clearTimeout(lsTimer.current)
+    lsTimer.current = setTimeout(() => saveToStorage(seasons), 800)
+    return () => { if (lsTimer.current) clearTimeout(lsTimer.current) }
   }, [seasons])
 
   useEffect(() => {
@@ -71,6 +95,15 @@ export function useDataStore() {
   }, [activeSeasonId])
 
   const activeSeason = seasons.find(s => s.id === activeSeasonId) ?? null
+
+  const currentTabHistory: TabHistory = activeSeasonId
+    ? (tabHistories[activeSeasonId] ?? { stack: [], cursor: -1 })
+    : { stack: [], cursor: -1 }
+
+  const canGoBack = currentTabHistory.cursor > 0
+  const canGoForward = currentTabHistory.cursor < currentTabHistory.stack.length - 1
+
+  // ---- Actions ----
 
   const addSeason = useCallback((label: string, data: AutoChessSeasonData) => {
     const id = `season_${Date.now()}`
@@ -91,6 +124,11 @@ export function useDataStore() {
       saveToStorage(next)
       return next
     })
+    setTabHistories(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     setActiveSeasonId(prev => {
       if (prev !== id) return prev
       const remaining = seasons.filter(s => s.id !== id)
@@ -106,9 +144,97 @@ export function useDataStore() {
     setSeasons(prev => prev.map(s => s.id === id ? { ...s, isDirty: false } : s))
   }, [])
 
-  const navigateTo = useCallback((module: ActiveModule, id?: string) => {
+  /** 设置 FS 目录句柄。handle=undefined 表示断开。同步更新 fsHandleName 供刷新后提示。 */
+  const setSeasonFsHandle = useCallback((id: string, handle: FileSystemDirectoryHandle | undefined) => {
+    setSeasons(prev => prev.map(s => s.id === id
+      ? {
+          ...s,
+          fsHandle: handle,
+          fsHandleName: handle ? handle.name : undefined,
+          fsSyncStatus: handle ? s.fsSyncStatus : undefined,
+        }
+      : s
+    ))
+  }, [])
+
+  /** 更新 FS 状态（savedAt + status），不改变其他字段 */
+  const setSeasonFsState = useCallback((id: string, savedAt: number, status: SeasonSlot['fsSyncStatus']) => {
+    setSeasons(prev => prev.map(s => s.id === id
+      ? { ...s, fsSavedAt: savedAt, fsSyncStatus: status, isDirty: status === 'synced' ? false : s.isDirty }
+      : s
+    ))
+  }, [])
+
+  /** 仅更新 fsSyncStatus（不改 savedAt） */
+  const setSeasonFsSyncStatus = useCallback((id: string, status: SeasonSlot['fsSyncStatus']) => {
+    setSeasons(prev => prev.map(s => s.id === id ? { ...s, fsSyncStatus: status } : s))
+  }, [])
+
+  const navigateTo = useCallback((module: ActiveModule, id?: string, label?: string) => {
     setActiveModule(module)
     setFocusId(id ?? null)
+    setActiveSeasonId(seasonId => {
+      if (seasonId) {
+        setTabHistories(histories => {
+          const current = histories[seasonId] ?? { stack: [], cursor: -1 }
+          const newStack = current.stack.slice(0, current.cursor + 1)
+          const entry: NavEntry = { module, focusId: id ?? null, label }
+          const last = newStack[newStack.length - 1]
+          if (last && last.module === module && last.focusId === (id ?? null)) return histories
+          newStack.push(entry)
+          if (newStack.length > MAX_HISTORY) newStack.splice(0, newStack.length - MAX_HISTORY)
+          return { ...histories, [seasonId]: { stack: newStack, cursor: newStack.length - 1 } }
+        })
+      }
+      return seasonId
+    })
+  }, [])
+
+  const historyBack = useCallback(() => {
+    setActiveSeasonId(seasonId => {
+      if (!seasonId) return seasonId
+      setTabHistories(histories => {
+        const current = histories[seasonId] ?? { stack: [], cursor: -1 }
+        if (current.cursor <= 0) return histories
+        const newCursor = current.cursor - 1
+        const entry = current.stack[newCursor]
+        setActiveModule(entry.module)
+        setFocusId(entry.focusId)
+        return { ...histories, [seasonId]: { ...current, cursor: newCursor } }
+      })
+      return seasonId
+    })
+  }, [])
+
+  const historyForward = useCallback(() => {
+    setActiveSeasonId(seasonId => {
+      if (!seasonId) return seasonId
+      setTabHistories(histories => {
+        const current = histories[seasonId] ?? { stack: [], cursor: -1 }
+        if (current.cursor >= current.stack.length - 1) return histories
+        const newCursor = current.cursor + 1
+        const entry = current.stack[newCursor]
+        setActiveModule(entry.module)
+        setFocusId(entry.focusId)
+        return { ...histories, [seasonId]: { ...current, cursor: newCursor } }
+      })
+      return seasonId
+    })
+  }, [])
+
+  const historyJumpTo = useCallback((index: number) => {
+    setActiveSeasonId(seasonId => {
+      if (!seasonId) return seasonId
+      setTabHistories(histories => {
+        const current = histories[seasonId] ?? { stack: [], cursor: -1 }
+        if (index < 0 || index >= current.stack.length) return histories
+        const entry = current.stack[index]
+        setActiveModule(entry.module)
+        setFocusId(entry.focusId)
+        return { ...histories, [seasonId]: { ...current, cursor: index } }
+      })
+      return seasonId
+    })
   }, [])
 
   return {
@@ -126,6 +252,16 @@ export function useDataStore() {
     removeSeason,
     renameSeason,
     markClean,
+    setSeasonFsHandle,
+    setSeasonFsState,
+    setSeasonFsSyncStatus,
+    tabHistories,
+    currentTabHistory,
+    canGoBack,
+    canGoForward,
+    historyBack,
+    historyForward,
+    historyJumpTo,
   }
 }
 
