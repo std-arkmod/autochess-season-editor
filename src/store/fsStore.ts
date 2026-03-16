@@ -102,6 +102,7 @@ async function readJsonFile<T>(dir: FileSystemDirectoryHandle, filename: string)
 
 async function listJsonKeys(dir: FileSystemDirectoryHandle): Promise<string[]> {
   const keys: string[] = []
+  // @ts-ignore
   for await (const [name] of dir.entries()) {
     if (typeof name === 'string' && name.endsWith('.json')) keys.push(name.slice(0, -5))
   }
