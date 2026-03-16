@@ -2,7 +2,7 @@ import {
   Stack, Card, Group, Text, Badge, Grid, NumberInput,
   ActionIcon, Title, TextInput, Select, Divider,
   ScrollArea, Switch, Table, SegmentedControl, Tabs, Tooltip,
-  Button, Modal,
+  Button, Modal, MultiSelect,
 } from '@mantine/core'
 import { IconChevronRight, IconTrash, IconPlus } from '@tabler/icons-react'
 import { useState, useMemo, useEffect } from 'react'
@@ -71,7 +71,7 @@ export function ChessEditor({ store }: Props) {
   const [newChessId, setNewChessId] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
-  const { charShopChessDatas, charChessDataDict, bondInfoDict, chessNormalIdLookupDict } = activeSeason?.data ?? {}
+  const { charShopChessDatas, charChessDataDict, bondInfoDict, chessNormalIdLookupDict, garrisonDataDict } = activeSeason?.data ?? {}
 
   useEffect(() => {
     if (!focusId) return
@@ -235,6 +235,19 @@ export function ChessEditor({ store }: Props) {
           ))}
           {chess.bondIds.length === 0 && <Text size="xs" c="dimmed">无盟约</Text>}
         </Group>
+        <Divider label="干员特质（garrisonIds）" labelPosition="left" />
+        <MultiSelect
+          size="xs"
+          placeholder="选择特质..."
+          searchable
+          value={chess.garrisonIds ?? []}
+          data={Object.keys(garrisonDataDict ?? {}).map(id => ({
+            value: id,
+            label: `${garrisonDataDict![id].garrisonDesc.replace(/<[^>]+>/g, '').slice(0, 25)} (${id})`,
+          }))}
+          onChange={v => patchChess(chessId, { garrisonIds: v.length > 0 ? v : null })}
+          maxDropdownHeight={200}
+        />
       </Stack>
     )
   }

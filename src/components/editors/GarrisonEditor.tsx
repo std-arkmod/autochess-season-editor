@@ -1,10 +1,11 @@
 import {
   Stack, Card, Group, Text, Badge, Grid, Title,
   TextInput, NumberInput, ScrollArea, ActionIcon, Textarea, Divider, Select,
+  Table, MultiSelect,
 } from '@mantine/core'
-import { IconEdit } from '@tabler/icons-react'
+import { IconEdit, IconPlus, IconTrash } from '@tabler/icons-react'
 import { useState, useMemo } from 'react'
-import { eventTypeLabel, getCharName } from '../../store/utils'
+import { eventTypeLabel, getCharName, getChessName } from '../../store/utils'
 import { RichTextPreview } from '../shared/RichTextPreview'
 import type { DataStore } from '../../store/dataStore'
 import type { GarrisonDataDict, EventType } from '../../autochess-season-data'
@@ -54,6 +55,51 @@ export function GarrisonEditor({ store }: Props) {
       garrisonDataDict: { ...data.garrisonDataDict, [id]: { ...data.garrisonDataDict[id], ...patch } },
     }))
   }
+
+  function patchBlackboard(id: string, bbIdx: number, patch: Partial<{ key: string; value: number; valueStr: string | null }>) {
+    updateSeason(activeSeasonId!, data => {
+      const bb = [...data.garrisonDataDict[id].blackboard]
+      bb[bbIdx] = { ...bb[bbIdx], ...patch }
+      return { ...data, garrisonDataDict: { ...data.garrisonDataDict, [id]: { ...data.garrisonDataDict[id], blackboard: bb } } }
+    })
+  }
+
+  function addBlackboardRow(id: string) {
+    updateSeason(activeSeasonId!, data => {
+      const bb = [...data.garrisonDataDict[id].blackboard, { key: 'new_key', value: 0, valueStr: null }]
+      return { ...data, garrisonDataDict: { ...data.garrisonDataDict, [id]: { ...data.garrisonDataDict[id], blackboard: bb } } }
+    })
+  }
+
+  function removeBlackboardRow(id: string, bbIdx: number) {
+    updateSeason(activeSeasonId!, data => {
+      const bb = data.garrisonDataDict[id].blackboard.filter((_, i) => i !== bbIdx)
+      return { ...data, garrisonDataDict: { ...data.garrisonDataDict, [id]: { ...data.garrisonDataDict[id], blackboard: bb } } }
+    })
+  }
+
+  /** 修改某个棋子绑定的 garrisonIds，同时更新 garrisonDataDict 无需手动维护反向关系 */
+  function setChessGarrisons(chessId: string, garrisonIds: string[]) {
+    updateSeason(activeSeasonId!, data => ({
+      ...data,
+      charChessDataDict: {
+        ...data.charChessDataDict,
+        [chessId]: { ...data.charChessDataDict[chessId], garrisonIds: garrisonIds.length > 0 ? garrisonIds : null },
+      },
+    }))
+  }
+
+  const allChessOptions = useMemo(() => Object.entries(charShopChessDatas)
+    .map(([chessId, v]) => ({
+      value: chessId,
+      label: getChessName(chessId, charShopChessDatas, activeSeason.data.chessNormalIdLookupDict),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+  [charShopChessDatas, activeSeason.data.chessNormalIdLookupDict])
+
+  const garrisonOptions = useMemo(() => Object.keys(garrisonDataDict)
+    .map(id => ({ value: id, label: `${garrisonDataDict[id].garrisonDesc.slice(0, 20)} (${id})` })),
+  [garrisonDataDict])
 
   const eventTypeOptions = [
     'IN_BATTLE', 'SERVER_PRICE', 'SERVER_CHESS_SOLD', 'SERVER_GAIN',
@@ -179,18 +225,79 @@ export function GarrisonEditor({ store }: Props) {
               <RichTextPreview text={editingGarrison.garrisonDesc} maxLen={300} />
             </Card>
 
-            {linkedChess.length > 0 && (
-              <>
-                <Divider label={`拥有此特质的干员（${linkedChess.length} 人）`} labelPosition="left" />
-                <Group gap="xs" wrap="wrap">
-                  {linkedChess.map(chessId => (
-                    <Badge key={chessId} variant="light" color="teal" size="sm">
-                      {getCharName(charShopChessDatas[chessId]?.charId)}
-                    </Badge>
-                  ))}
+            <Divider
+              label={
+                <Group gap="xs">
+                  <Text size="xs">Blackboard 数值（{editingGarrison.blackboard.length} 行）</Text>
+                  <ActionIcon size="xs" variant="light" color="teal" onClick={() => addBlackboardRow(editingKey)}>
+                    <IconPlus size={10} />
+                  </ActionIcon>
                 </Group>
-              </>
-            )}
+              }
+              labelPosition="left"
+            />
+            {editingGarrison.blackboard.length === 0
+              ? <Text size="xs" c="dimmed">暂无数值行</Text>
+              : (
+                <Table fz="xs" withTableBorder>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Key</Table.Th>
+                      <Table.Th>Value</Table.Th>
+                      <Table.Th>ValueStr</Table.Th>
+                      <Table.Th w={30}></Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {editingGarrison.blackboard.map((bb, i) => (
+                      <Table.Tr key={i}>
+                        <Table.Td>
+                          <TextInput size="xs" value={bb.key} w={140}
+                            onChange={e => patchBlackboard(editingKey, i, { key: e.target.value })} />
+                        </Table.Td>
+                        <Table.Td>
+                          <NumberInput size="xs" value={bb.value} step={0.01} decimalScale={4} w={100}
+                            onChange={v => patchBlackboard(editingKey, i, { value: Number(v) })} />
+                        </Table.Td>
+                        <Table.Td>
+                          <TextInput size="xs" value={bb.valueStr ?? ''} placeholder="null" w={100}
+                            onChange={e => patchBlackboard(editingKey, i, { valueStr: e.target.value || null })} />
+                        </Table.Td>
+                        <Table.Td>
+                          <ActionIcon size="xs" variant="subtle" color="red"
+                            onClick={() => removeBlackboardRow(editingKey, i)}>
+                            <IconTrash size={10} />
+                          </ActionIcon>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              )
+            }
+
+            <Divider label={`拥有此特质的干员（${linkedChess.length} 人）`} labelPosition="left" />
+            <MultiSelect
+              placeholder="选择棋子..."
+              searchable
+              value={linkedChess.map(id => activeSeason.data.chessNormalIdLookupDict?.[id] ?? id)}
+              data={allChessOptions}
+              onChange={selectedChessIds => {
+                const lookup = activeSeason.data.chessNormalIdLookupDict ?? {}
+                const normalizedLinked = linkedChess.map(id => lookup[id] ?? id)
+                const removed = normalizedLinked.filter(id => !selectedChessIds.includes(id))
+                const added = selectedChessIds.filter(id => !normalizedLinked.includes(id))
+                removed.forEach(chessId => {
+                  const cur = charChessDataDict[chessId]?.garrisonIds ?? []
+                  setChessGarrisons(chessId, cur.filter(g => g !== editingKey))
+                })
+                added.forEach(chessId => {
+                  const cur = charChessDataDict[chessId]?.garrisonIds ?? []
+                  if (!cur.includes(editingKey)) setChessGarrisons(chessId, [...cur, editingKey])
+                })
+              }}
+              maxDropdownHeight={200}
+            />
           </Stack>
         ) : (
           <Card withBorder padding="xl" ta="center">
