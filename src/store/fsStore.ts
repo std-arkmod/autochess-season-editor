@@ -102,7 +102,6 @@ async function readJsonFile<T>(dir: FileSystemDirectoryHandle, filename: string)
 
 async function listJsonKeys(dir: FileSystemDirectoryHandle): Promise<string[]> {
   const keys: string[] = []
-  // @ts-expect-error entries() is in modern browsers
   for await (const [name] of dir.entries()) {
     if (typeof name === 'string' && name.endsWith('.json')) keys.push(name.slice(0, -5))
   }
@@ -221,6 +220,7 @@ export function watchDirectory(
 
     // @ts-expect-error
     const observer = new FileSystemObserver((records: unknown[]) => {
+      // @ts-expect-error
       if (cancelled || !records.find(v => v.changedHandle.name.endsWith('.json'))) return
       // debounce：等 1s 内无新通知再判断
       if (debounceTimer) clearTimeout(debounceTimer)
@@ -231,7 +231,7 @@ export function watchDirectory(
     })
 
     observer.observe(dir, { recursive: true }).catch(() => {
-      startPoll(dir, isRecent, onExternal, () => cancelled)
+      alert('FileSystemObserver 初始化失败')
     })
 
     return () => {
