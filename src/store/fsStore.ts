@@ -222,7 +222,7 @@ export function watchDirectory(
     // @ts-expect-error
     const observer = new FileSystemObserver((records: unknown[]) => {
       // @ts-expect-error
-      if (cancelled || !records.find(v => v.changedHandle.name.endsWith('.json'))) return
+      if (cancelled || !records.find(v => v.changedHandle.name.endsWith('.json') && v.relativePathComponents[0] !== '.git')) return
       // debounce：等 1s 内无新通知再判断
       if (debounceTimer) clearTimeout(debounceTimer)
       debounceTimer = setTimeout(() => {
