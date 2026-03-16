@@ -72,6 +72,24 @@ async function writeJsonFile(dir: FileSystemDirectoryHandle, filename: string, d
   await writable.close()
 }
 
+/** 只在内容真正变化时才写入，返回是否写了 */
+async function writeJsonFileIfChanged(dir: FileSystemDirectoryHandle, filename: string, data: unknown): Promise<boolean> {
+  const newContent = JSON.stringify(data, null, 2)
+  try {
+    const fh = await dir.getFileHandle(filename)
+    const file = await fh.getFile()
+    const oldContent = await file.text()
+    if (oldContent === newContent) return false
+  } catch {
+    // 文件不存在，继续写
+  }
+  const fh = await dir.getFileHandle(filename, { create: true })
+  const writable = await fh.createWritable()
+  await writable.write(newContent)
+  await writable.close()
+  return true
+}
+
 async function readJsonFile<T>(dir: FileSystemDirectoryHandle, filename: string): Promise<T | null> {
   try {
     const fh = await dir.getFileHandle(filename)
@@ -96,7 +114,6 @@ async function listJsonKeys(dir: FileSystemDirectoryHandle): Promise<string[]> {
 export interface ProjectMeta {
   label: string
   version: number
-  savedAt: number
   constFields: Partial<AutoChessSeasonData>
 }
 
@@ -140,32 +157,36 @@ export async function loadFromDirectory(
 export async function saveToDirectory(
   dir: FileSystemDirectoryHandle,
   data: AutoChessSeasonData,
-  label: string
+  label: string,
+  /** 第一个文件实际写入前调用，用于提前更新 lastOwnWrite，避免 watchDirectory 误判 */
+  onFirstWrite?: () => void
 ): Promise<number> {
-  const savedAt = Date.now()
+  let firstWriteCalled = false
+  const notifyFirst = () => {
+    if (!firstWriteCalled) {
+      firstWriteCalled = true
+      onFirstWrite?.()
+    }
+  }
+
   const constFields: Partial<AutoChessSeasonData> = {}
   for (const field of CONST_FIELDS) {
     ;(constFields as unknown as Record<string, unknown>)[field] =
       (data as unknown as Record<string, unknown>)[field]
   }
-  await writeJsonFile(dir, 'project.json', { label, version: 1, savedAt, constFields })
+  const projectChanged = await writeJsonFileIfChanged(dir, 'project.json', { label, version: 1, constFields })
+  if (projectChanged) notifyFirst()
+
   for (const field of DICT_FIELDS) {
     const dict = (data as unknown as Record<string, unknown>)[field] as Record<string, unknown> | null
     if (!dict) continue
     const subDir = await getOrCreateDir(dir, field as string)
     for (const [key, value] of Object.entries(dict)) {
-      await writeJsonFile(subDir, `${key}.json`, value)
+      const changed = await writeJsonFileIfChanged(subDir, `${key}.json`, value)
+      if (changed) notifyFirst()
     }
   }
-  return savedAt
-}
-
-/**
- * 读取 project.json 的 savedAt（poll fallback 用）
- */
-export async function readSavedAt(dir: FileSystemDirectoryHandle): Promise<number | null> {
-  const meta = await readJsonFile<ProjectMeta>(dir, 'project.json')
-  return meta?.savedAt ?? null
+  return Date.now()
 }
 
 // ── FileSystemObserver with poll fallback ────────────────────────────────────
@@ -200,7 +221,7 @@ export function watchDirectory(
 
     // @ts-expect-error
     const observer = new FileSystemObserver((records: unknown[]) => {
-      if (cancelled || records.length === 0) return
+      if (cancelled || !records.find(v => v.changedHandle.name.endsWith('.json'))) return
       // debounce：等 1s 内无新通知再判断
       if (debounceTimer) clearTimeout(debounceTimer)
       debounceTimer = setTimeout(() => {
@@ -218,37 +239,7 @@ export function watchDirectory(
       if (debounceTimer) clearTimeout(debounceTimer)
       observer.disconnect()
     }
+  } else {
+    alert('当前浏览器太老，请使用 Chrome 129+')
   }
-
-  // ── 降级：3s poll ─────────────────────────────────────────────────────────
-  let cancelled = false
-  startPoll(dir, isRecent, onExternal, () => cancelled)
-  return () => { cancelled = true }
-}
-
-function startPoll(
-  dir: FileSystemDirectoryHandle,
-  isRecent: () => boolean,
-  onExternal: () => void,
-  isCancelled: () => boolean
-) {
-  let lastKnown: number | null = null
-
-  async function poll() {
-    if (isCancelled()) return
-    try {
-      const ts = await readSavedAt(dir)
-      if (ts !== null) {
-        if (lastKnown === null) {
-          lastKnown = ts // 初次只记录基准，不触发
-        } else if (ts > lastKnown) {
-          lastKnown = ts
-          if (!isRecent()) onExternal()
-        }
-      }
-    } catch { /* ignore */ }
-    if (!isCancelled()) setTimeout(poll, 3000)
-  }
-
-  setTimeout(poll, 3000)
 }

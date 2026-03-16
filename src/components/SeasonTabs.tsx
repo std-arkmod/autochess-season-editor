@@ -75,8 +75,11 @@ export function SeasonTabs({ store }: Props) {
         savingRef.current[s.id] = true
         setSeasonFsSyncStatus(s.id, 'saving')
         try {
-          const savedAt = await saveToDirectory(latest.fsHandle, latest.data, latest.label)
-          lastOwnWriteRef.current[s.id] = Date.now()  // 记录写入完成时间
+          const sid = s.id
+          const savedAt = await saveToDirectory(latest.fsHandle, latest.data, latest.label, () => {
+            lastOwnWriteRef.current[sid] = Date.now()  // 第一个文件写入前就更新，避免 watchDirectory 误判
+          })
+          lastOwnWriteRef.current[sid] = Date.now()  // 写完后再更新一次，保证 cooldown 从此时起算
           setSeasonFsState(s.id, savedAt, 'synced')
         } catch {
           setSeasonFsSyncStatus(s.id, 'unsaved')
@@ -231,7 +234,9 @@ export function SeasonTabs({ store }: Props) {
       const handle = await openDirectory()
       if (!handle) return
       setSeasonFsSyncStatus(id, 'saving')
-      const savedAt = await saveToDirectory(handle, season.data, season.label)
+      const savedAt = await saveToDirectory(handle, season.data, season.label, () => {
+        lastOwnWriteRef.current[id] = Date.now()
+      })
       lastOwnWriteRef.current[id] = Date.now()
       setSeasonFsHandle(id, handle)
       setSeasonFsState(id, savedAt, 'synced')
@@ -247,7 +252,9 @@ export function SeasonTabs({ store }: Props) {
     if (!season?.fsHandle) return
     setSeasonFsSyncStatus(id, 'saving')
     try {
-      const savedAt = await saveToDirectory(season.fsHandle, season.data, season.label)
+      const savedAt = await saveToDirectory(season.fsHandle, season.data, season.label, () => {
+        lastOwnWriteRef.current[id] = Date.now()
+      })
       lastOwnWriteRef.current[id] = Date.now()
       setSeasonFsState(id, savedAt, 'synced')
       notifications.show({ title: '保存成功', message: '已同步到目录', color: 'teal' })
