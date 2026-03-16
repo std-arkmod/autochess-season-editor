@@ -135,9 +135,9 @@ export function SeasonTabs({ store }: Props) {
     if (!season?.fsHandle) { setExternalChangeSeasonId(null); return }
     setReloading(true)
     try {
-      const { data, meta } = await loadFromDirectory(season.fsHandle)
+      const { data } = await loadFromDirectory(season.fsHandle)
       updateSeason(externalChangeSeasonId, () => data)
-      setSeasonFsState(externalChangeSeasonId, meta.savedAt, 'synced')
+      setSeasonFsState(externalChangeSeasonId, 0, 'synced')
       notifications.show({ title: '重载成功', message: `已重载「${season.label}」`, color: 'teal' })
       setExternalChangeSeasonId(null)
     } catch (e) {
@@ -153,10 +153,10 @@ export function SeasonTabs({ store }: Props) {
       const handle = await openDirectory()
       if (!handle) return
       // 尝试加载，验证目录是否匹配
-      const { data, meta } = await loadFromDirectory(handle)
+      const { data } = await loadFromDirectory(handle)
       updateSeason(id, () => data)
       setSeasonFsHandle(id, handle)
-      setSeasonFsState(id, meta.savedAt, 'synced')
+      setSeasonFsState(id, 0, 'synced')
       markClean(id)
       setRebindSeasonId(null)
       notifications.show({ title: '重新绑定成功', message: `已重新绑定目录「${handle.name}」`, color: 'teal' })
@@ -213,7 +213,7 @@ export function SeasonTabs({ store }: Props) {
         const { data, meta } = await loadFromDirectory(handle)
         const id = addSeason(meta.label || handle.name, data)
         setSeasonFsHandle(id, handle)
-        setSeasonFsState(id, meta.savedAt, 'synced')
+        setSeasonFsState(id, 0, 'synced')
         notifications.show({ title: '目录加载成功', message: `已从「${handle.name}」加载`, color: 'teal', icon: <IconFolderCheck size={16} /> })
       } catch {
         notifications.show({
