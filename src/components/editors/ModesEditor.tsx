@@ -1,7 +1,7 @@
 import {
   Stack, Card, Group, Text, Badge, Grid, Textarea,
   Switch, Select, MultiSelect, ActionIcon, Button, Divider,
-  TextInput, Title, Modal, NumberInput,
+  TextInput, Title, Modal, NumberInput, ColorInput,
 } from '@mantine/core'
 import { IconPlus, IconTrash, IconArrowUp, IconArrowDown } from '@tabler/icons-react'
 import { useState } from 'react'
@@ -235,6 +235,43 @@ export function ModesEditor({ store }: Props) {
                   onChange={e => patchMode(editing.modeId, { unlockText: e.target.value || null })}
                 />
               </Grid.Col>
+              <Grid.Col span={6}>
+                <TextInput
+                  label="背景 ID（backgroundId）"
+                  value={editing.backgroundId}
+                  onChange={e => patchMode(editing.modeId, { backgroundId: e.target.value })}
+                />
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <TextInput
+                  label="加载图 ID（loadingPicId）"
+                  value={editing.loadingPicId}
+                  onChange={e => patchMode(editing.modeId, { loadingPicId: e.target.value })}
+                />
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <TextInput
+                  label="模式图标 ID（modeIconId）"
+                  value={editing.modeIconId}
+                  onChange={e => patchMode(editing.modeId, { modeIconId: e.target.value })}
+                />
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <ColorInput
+                  label="模式颜色（modeColor）"
+                  value={`#${editing.modeColor}`}
+                  format="hex"
+                  onChange={v => patchMode(editing.modeId, { modeColor: v.replace('#', '') })}
+                />
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <NumberInput
+                  label="开始时间戳（startTime，可选）"
+                  value={editing.startTime ?? ''}
+                  placeholder="（无）"
+                  onChange={v => patchMode(editing.modeId, { startTime: v === '' ? undefined : Number(v) })}
+                />
+              </Grid.Col>
             </Grid>
 
             <Divider label="效果描述列表" labelPosition="left" />
@@ -290,6 +327,40 @@ export function ModesEditor({ store }: Props) {
               onChange={v => patchMode(editing.modeId, { inactiveBondIdList: v })}
               maxDropdownHeight={200}
             />
+
+            <Divider label="禁用敌人 Key（inactiveEnemyKey）" labelPosition="left" />
+            <Stack gap="xs">
+              {editing.inactiveEnemyKey.map((key, i) => (
+                <Group key={i} gap="xs">
+                  <TextInput
+                    style={{ flex: 1 }}
+                    value={key}
+                    onChange={e => {
+                      const next = [...editing.inactiveEnemyKey]
+                      next[i] = e.target.value
+                      patchMode(editing.modeId, { inactiveEnemyKey: next })
+                    }}
+                  />
+                  <ActionIcon
+                    color="red"
+                    variant="subtle"
+                    onClick={() => patchMode(editing.modeId, {
+                      inactiveEnemyKey: editing.inactiveEnemyKey.filter((_, j) => j !== i)
+                    })}
+                  >
+                    <IconTrash size={14} />
+                  </ActionIcon>
+                </Group>
+              ))}
+              <Button
+                size="xs"
+                variant="subtle"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => patchMode(editing.modeId, { inactiveEnemyKey: [...editing.inactiveEnemyKey, ''] })}
+              >
+                添加敌人 Key
+              </Button>
+            </Stack>
           </Stack>
         ) : (
           <Card withBorder padding="xl" ta="center">
