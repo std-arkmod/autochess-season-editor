@@ -73,6 +73,11 @@ export function ChessEditor({ store }: Props) {
 
   const { charShopChessDatas, charChessDataDict, bondInfoDict, chessNormalIdLookupDict, garrisonDataDict } = activeSeason?.data ?? {}
 
+  // 切换赛季时清空选中
+  useEffect(() => {
+    setEditingId(null)
+  }, [activeSeasonId])
+
   useEffect(() => {
     if (!focusId) return
     // 直接是 _a

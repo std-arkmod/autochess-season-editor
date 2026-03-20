@@ -4,7 +4,7 @@ import {
   ScrollArea, Button, Modal, TextInput,
 } from '@mantine/core'
 import { IconTrash, IconPlus, IconArrowUp, IconArrowDown } from '@tabler/icons-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type { Boss } from '../../autochess-season-data'

@@ -95,9 +95,9 @@ export function BondsEditor({ store }: Props) {
     updateSeason(activeSeasonId!, data => {
       const next = { ...data.bondInfoDict }
       delete next[id]
-      // 重排 identifier
-      let i = 0
-      for (const k of Object.keys(next)) next[k] = { ...next[k], identifier: i++ }
+      // 按原 identifier 排序后重新分配，保证连续且变动最小
+      const sorted = Object.values(next).sort((a, b) => a.identifier - b.identifier)
+      sorted.forEach((b, i) => { next[b.bondId] = { ...next[b.bondId], identifier: i } })
       return { ...data, bondInfoDict: next }
     })
     if (editingId === id) setEditingId(null)
@@ -284,7 +284,8 @@ export function BondsEditor({ store }: Props) {
                 maxDropdownHeight={200}
               />
               <Group gap="xs" wrap="wrap">
-                {editing.chessIdList.map(chessId => {
+                {[...new Set(editing.chessIdList)].map(chessId => {
+                  console.log(editing)
                   // _b → _a for navigation
                   const normalId = chessNormalIdLookupDict?.[chessId] ?? chessId
                   return (

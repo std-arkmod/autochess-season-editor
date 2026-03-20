@@ -181,9 +181,24 @@ export async function saveToDirectory(
     const dict = (data as unknown as Record<string, unknown>)[field] as Record<string, unknown> | null
     if (!dict) continue
     const subDir = await getOrCreateDir(dir, field as string)
+
+    // 写入/更新现有 key
     for (const [key, value] of Object.entries(dict)) {
       const changed = await writeJsonFileIfChanged(subDir, `${key}.json`, value)
       if (changed) notifyFirst()
+    }
+
+    // 删除 dict 中已不存在的文件
+    const currentKeys = new Set(Object.keys(dict))
+    // @ts-ignore
+    for await (const [name] of subDir.entries()) {
+      if (typeof name === 'string' && name.endsWith('.json')) {
+        const key = name.slice(0, -5)
+        if (!currentKeys.has(key)) {
+          notifyFirst()
+          await subDir.removeEntry(name)
+        }
+      }
     }
   }
   return Date.now()
