@@ -105,15 +105,20 @@ export function BondsEditor({ store }: Props) {
     notifications.show({ title: '已删除', message: `盟约 ${id} 已删除`, color: 'orange' })
   }
 
-  // MultiSelect data 只用 _a（charShopChessDatas 的 key），保持不变
-  const allChessOptions = useMemo(() => Object.entries(charShopChessDatas)
-    .filter(([, v]) => !v.isHidden)
-    .map(([chessId]) => ({
-      value: chessId,
-      label: getChessName(chessId, charShopChessDatas, chessNormalIdLookupDict),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label)),
-  [charShopChessDatas, chessNormalIdLookupDict])
+  // MultiSelect data 同时包含 _a 和 _b，让用户明确选择版本
+  const allChessOptions = useMemo(() => {
+    const entries: { value: string; label: string }[] = []
+    for (const [chessId, shopData] of Object.entries(charShopChessDatas)) {
+      if (shopData.isHidden) continue
+      const name = getChessName(chessId, charShopChessDatas, chessNormalIdLookupDict)
+      entries.push({ value: chessId, label: `${name} 普通 (${chessId})` })
+      const goldenId = shopData.goldenChessId
+      if (goldenId) {
+        entries.push({ value: goldenId, label: `${name} 进阶 (${goldenId})` })
+      }
+    }
+    return entries.sort((a, b) => a.label.localeCompare(b.label))
+  }, [charShopChessDatas, chessNormalIdLookupDict])
 
   const effectOptions = [
     { value: '', label: '（无）' },
@@ -270,11 +275,10 @@ export function BondsEditor({ store }: Props) {
               )}
 
               <Divider label={`所属棋子（${editing.chessIdList.length} 个）`} labelPosition="left" />
-              {/* _b normalize: MultiSelect value 里的 _b 转成 _a，这样选中值与 data 对齐 */}
               <MultiSelect
                 placeholder="选择棋子..."
                 searchable
-                value={editing.chessIdList.map(id => chessNormalIdLookupDict?.[id] ?? id)}
+                value={editing.chessIdList}
                 data={allChessOptions}
                 onChange={v => patchBond(editing.bondId, { chessIdList: v })}
                 maxDropdownHeight={200}

@@ -145,13 +145,19 @@ export function GarrisonEditor({ store }: Props) {
     notifications.show({ title: '已删除', message: `特质 ${id} 已删除`, color: 'orange' })
   }
 
-  const allChessOptions = useMemo(() => Object.entries(charShopChessDatas)
-    .map(([chessId]) => ({
-      value: chessId,
-      label: getChessName(chessId, charShopChessDatas, activeSeason.data.chessNormalIdLookupDict),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label)),
-  [charShopChessDatas, activeSeason.data.chessNormalIdLookupDict])
+  const allChessOptions = useMemo(() => {
+    const lookup = activeSeason.data.chessNormalIdLookupDict ?? {}
+    const entries: { value: string; label: string }[] = []
+    for (const [chessId, shopData] of Object.entries(charShopChessDatas)) {
+      const name = getChessName(chessId, charShopChessDatas, lookup)
+      entries.push({ value: chessId, label: `${name} 普通 (${chessId})` })
+      const goldenId = shopData.goldenChessId
+      if (goldenId) {
+        entries.push({ value: goldenId, label: `${name} 进阶 (${goldenId})` })
+      }
+    }
+    return entries.sort((a, b) => a.label.localeCompare(b.label))
+  }, [charShopChessDatas, activeSeason.data.chessNormalIdLookupDict])
 
   const eventTypeOptions = [
     'IN_BATTLE', 'SERVER_PRICE', 'SERVER_CHESS_SOLD', 'SERVER_GAIN',
@@ -341,13 +347,11 @@ export function GarrisonEditor({ store }: Props) {
               <MultiSelect
                 placeholder="选择棋子..."
                 searchable
-                value={linkedChess.map(id => activeSeason.data.chessNormalIdLookupDict?.[id] ?? id)}
+                value={linkedChess}
                 data={allChessOptions}
                 onChange={selectedChessIds => {
-                  const lookup = activeSeason.data.chessNormalIdLookupDict ?? {}
-                  const normalizedLinked = linkedChess.map(id => lookup[id] ?? id)
-                  const removed = normalizedLinked.filter(id => !selectedChessIds.includes(id))
-                  const added = selectedChessIds.filter(id => !normalizedLinked.includes(id))
+                  const removed = linkedChess.filter(id => !selectedChessIds.includes(id))
+                  const added = selectedChessIds.filter(id => !linkedChess.includes(id))
                   removed.forEach(chessId => {
                     const cur = charChessDataDict[chessId]?.garrisonIds ?? []
                     setChessGarrisons(chessId, cur.filter(g => g !== editingKey))
