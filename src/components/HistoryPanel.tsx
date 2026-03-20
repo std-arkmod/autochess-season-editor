@@ -11,6 +11,7 @@ import {
   IconShield,
   IconGift,
   IconLayersDifference,
+  IconStack,
 } from '@tabler/icons-react'
 import type { DataStore, ActiveModule } from '../store/dataStore'
 
@@ -32,6 +33,7 @@ const moduleIcons: Record<ActiveModule, React.ReactNode> = {
   garrison: <IconShield size={14} />,
   rewards: <IconGift size={14} />,
   diff: <IconLayersDifference size={14} />,
+  misc: <IconStack size={14} />,
 }
 
 const moduleNames: Record<ActiveModule, string> = {
@@ -46,6 +48,7 @@ const moduleNames: Record<ActiveModule, string> = {
   garrison: '干员特质',
   rewards: '奖励',
   diff: '数据对比',
+  misc: '其他',
 }
 
 export function HistoryPanel({ store, opened, onClose }: Props) {
