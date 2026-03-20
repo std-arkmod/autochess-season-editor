@@ -3,7 +3,7 @@ import {
   ActionIcon, Title, TextInput, ScrollArea, Divider,
   Button, Modal, Select, Textarea, Table,
 } from '@mantine/core'
-import { IconTrash, IconPlus } from '@tabler/icons-react'
+import { IconTrash, IconPlus, IconCopy } from '@tabler/icons-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -33,6 +33,8 @@ export function EffectsEditor({ store }: Props) {
   const [addOpened, { open: openAdd, close: closeAdd }] = useDisclosure(false)
   const [newEffectId, setNewEffectId] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [copySource, setCopySource] = useState<string | null>(null)
+  const [copyTargetId, setCopyTargetId] = useState('')
 
   // 响应外部跳转聚焦
   useEffect(() => {
@@ -149,6 +151,36 @@ export function EffectsEditor({ store }: Props) {
     notifications.show({ title: '已删除', message: `效果 ${id} 已删除`, color: 'orange' })
   }
 
+  function copyEffect() {
+    const srcId = copySource!
+    const destId = copyTargetId.trim()
+    if (!destId) return
+    if (effectInfoDataDict[destId]) {
+      notifications.show({ title: '已存在', message: `effectId "${destId}" 已存在`, color: 'red' })
+      return
+    }
+    const src = effectInfoDataDict[srcId]
+    const srcBuffs = effectBuffInfoDataDict[srcId] ?? []
+    updateSeason(activeSeasonId!, data => ({
+      ...data,
+      effectInfoDataDict: {
+        ...data.effectInfoDataDict,
+        [destId]: { ...src, effectId: destId },
+      },
+      effectBuffInfoDataDict: {
+        ...data.effectBuffInfoDataDict,
+        [destId]: srcBuffs.map(b => ({
+          ...b,
+          blackboard: b.blackboard.map(bb => ({ ...bb })),
+        })),
+      },
+    }))
+    setEditingId(destId)
+    setCopySource(null)
+    setCopyTargetId('')
+    notifications.show({ title: '已复制', message: `效果 ${destId} 已从 ${srcId} 复制创建`, color: 'teal' })
+  }
+
   const effectTypeOptions = EFFECT_TYPES.map(t => ({
     value: t,
     label: `${effectTypeLabel[t] ?? t} (${t})`,
@@ -204,12 +236,20 @@ export function EffectsEditor({ store }: Props) {
                         </Group>
                         <RichTextPreview text={effect.effectDesc} maxLen={40} />
                       </div>
-                      <ActionIcon
-                        size="sm" variant="subtle" color="red"
-                        onClick={e => { e.stopPropagation(); setDeleteConfirm(effect.effectId) }}
-                      >
-                        <IconTrash size={12} />
-                      </ActionIcon>
+                      <Group gap={4} wrap="nowrap">
+                        <ActionIcon
+                          size="sm" variant="subtle" color="blue"
+                          onClick={e => { e.stopPropagation(); setCopySource(effect.effectId); setCopyTargetId('') }}
+                        >
+                          <IconCopy size={12} />
+                        </ActionIcon>
+                        <ActionIcon
+                          size="sm" variant="subtle" color="red"
+                          onClick={e => { e.stopPropagation(); setDeleteConfirm(effect.effectId) }}
+                        >
+                          <IconTrash size={12} />
+                        </ActionIcon>
+                      </Group>
                     </Group>
                   </Card>
                 ))}
@@ -395,6 +435,29 @@ export function EffectsEditor({ store }: Props) {
           <Group justify="flex-end">
             <Button variant="subtle" onClick={() => setDeleteConfirm(null)}>取消</Button>
             <Button color="red" onClick={() => deleteConfirm && deleteEffect(deleteConfirm)}>删除</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* 复制 Modal */}
+      <Modal
+        opened={!!copySource}
+        onClose={() => setCopySource(null)}
+        title={`复制效果：${copySource}`}
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">将复制 <Text span fw={600} c="blue">{copySource}</Text> 的所有字段（包括 effectBuffInfoDataDict）到新效果。</Text>
+          <TextInput
+            label="新效果 ID"
+            placeholder="如 effect_new_buff_002"
+            value={copyTargetId}
+            onChange={e => setCopyTargetId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && copyEffect()}
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setCopySource(null)}>取消</Button>
+            <Button onClick={copyEffect} disabled={!copyTargetId.trim()}>复制创建</Button>
           </Group>
         </Stack>
       </Modal>

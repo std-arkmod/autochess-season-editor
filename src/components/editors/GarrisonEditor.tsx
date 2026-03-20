@@ -3,7 +3,7 @@ import {
   TextInput, NumberInput, ScrollArea, ActionIcon, Textarea, Divider, Select,
   Table, MultiSelect, Button, Modal,
 } from '@mantine/core'
-import { IconPlus, IconTrash } from '@tabler/icons-react'
+import { IconPlus, IconTrash, IconCopy } from '@tabler/icons-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -34,6 +34,8 @@ export function GarrisonEditor({ store }: Props) {
   const [addOpened, { open: openAdd, close: closeAdd }] = useDisclosure(false)
   const [newGarrisonId, setNewGarrisonId] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [copySource, setCopySource] = useState<string | null>(null)
+  const [copyTargetId, setCopyTargetId] = useState('')
 
   useEffect(() => {
     if (focusId && activeSeason?.data.garrisonDataDict && focusId in activeSeason.data.garrisonDataDict) {
@@ -145,6 +147,41 @@ export function GarrisonEditor({ store }: Props) {
     notifications.show({ title: '已删除', message: `特质 ${id} 已删除`, color: 'orange' })
   }
 
+  function copyGarrison() {
+    const srcId = copySource!
+    const destId = copyTargetId.trim()
+    if (!destId) return
+    if (garrisonDataDict[destId]) {
+      notifications.show({ title: '已存在', message: `garrisonId "${destId}" 已存在`, color: 'red' })
+      return
+    }
+    const src = garrisonDataDict[srcId]
+    updateSeason(activeSeasonId!, data => ({
+      ...data,
+      garrisonDataDict: {
+        ...data.garrisonDataDict,
+        [destId]: {
+          ...src,
+          // 只复制 effectType 和 blackboard，其他字段重置
+          garrisonDesc: '',
+          description: '',
+          charLevel: src.charLevel,
+          effectType: src.effectType,
+          eventType: src.eventType,
+          eventTypeDesc: src.eventTypeDesc,
+          eventTypeIcon: src.eventTypeIcon,
+          eventTypeSmallIcon: src.eventTypeSmallIcon,
+          battleRuneKey: src.battleRuneKey,
+          blackboard: src.blackboard.map(bb => ({ ...bb })),
+        },
+      },
+    }))
+    setEditingId(destId)
+    setCopySource(null)
+    setCopyTargetId('')
+    notifications.show({ title: '已复制', message: `特质 ${destId} 已从 ${srcId} 复制创建`, color: 'teal' })
+  }
+
   const allChessOptions = useMemo(() => {
     const lookup = activeSeason.data.chessNormalIdLookupDict ?? {}
     const entries: { value: string; label: string }[] = []
@@ -206,12 +243,20 @@ export function GarrisonEditor({ store }: Props) {
                         </Group>
                         <RichTextPreview text={g.garrisonDesc || id} maxLen={50} />
                       </div>
-                      <ActionIcon
-                        size="sm" variant="subtle" color="red"
-                        onClick={e => { e.stopPropagation(); setDeleteConfirm(id) }}
-                      >
-                        <IconTrash size={12} />
-                      </ActionIcon>
+                      <Group gap={4} wrap="nowrap">
+                        <ActionIcon
+                          size="sm" variant="subtle" color="blue"
+                          onClick={e => { e.stopPropagation(); setCopySource(id); setCopyTargetId('') }}
+                        >
+                          <IconCopy size={12} />
+                        </ActionIcon>
+                        <ActionIcon
+                          size="sm" variant="subtle" color="red"
+                          onClick={e => { e.stopPropagation(); setDeleteConfirm(id) }}
+                        >
+                          <IconTrash size={12} />
+                        </ActionIcon>
+                      </Group>
                     </Group>
                   </Card>
                 ))}
@@ -413,6 +458,29 @@ export function GarrisonEditor({ store }: Props) {
           <Group justify="flex-end">
             <Button variant="subtle" onClick={() => setDeleteConfirm(null)}>取消</Button>
             <Button color="red" onClick={() => deleteConfirm && deleteGarrison(deleteConfirm)}>删除</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* 复制 Modal */}
+      <Modal
+        opened={!!copySource}
+        onClose={() => setCopySource(null)}
+        title={`复制特质：${copySource}`}
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">将复制 <Text span fw={600} c="blue">{copySource}</Text> 的效果类型和 Blackboard 数值到新特质，其余字段（描述、触发等级等）可在创建后单独修改。</Text>
+          <TextInput
+            label="新特质 ID"
+            placeholder="如 garrison_skill_002"
+            value={copyTargetId}
+            onChange={e => setCopyTargetId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && copyGarrison()}
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setCopySource(null)}>取消</Button>
+            <Button onClick={copyGarrison} disabled={!copyTargetId.trim()}>复制创建</Button>
           </Group>
         </Stack>
       </Modal>
