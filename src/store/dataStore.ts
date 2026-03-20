@@ -30,6 +30,7 @@ export type ActiveModule =
   | 'effects'
   | 'garrison'
   | 'rewards'
+  | 'misc'
   | 'diff'
 
 /** 历史条目 */

@@ -2,7 +2,7 @@ import { Stack, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import {
   IconLayoutDashboard, IconSwords, IconUsers, IconShield,
   IconShoppingCart, IconSkull, IconBolt, IconGitCompare,
-  IconCoins, IconSettings, IconStar,
+  IconCoins, IconSettings, IconStar, IconDatabase,
 } from '@tabler/icons-react'
 import type { ActiveModule } from '../store/dataStore'
 
@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
   { id: 'effects', icon: <IconBolt size={20} />, label: '效果' },
   { id: 'garrison', icon: <IconStar size={20} />, label: '特质' },
   { id: 'rewards', icon: <IconCoins size={20} />, label: '奖励' },
+  { id: 'misc', icon: <IconDatabase size={20} />, label: '其他' },
   { id: 'diff', icon: <IconGitCompare size={20} />, label: '对比' },
 ]
 

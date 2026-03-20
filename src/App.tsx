@@ -16,6 +16,7 @@ import { EffectsEditor } from './components/editors/EffectsEditor'
 import { GarrisonEditor } from './components/editors/GarrisonEditor'
 import { RewardsEditor } from './components/editors/RewardsEditor'
 import { DiffViewer } from './components/editors/DiffViewer'
+import { MiscEditor } from './components/editors/MiscEditor'
 
 const moduleTitles: Record<string, string> = {
   overview: '数据概览',
@@ -28,6 +29,7 @@ const moduleTitles: Record<string, string> = {
   effects: '效果信息',
   garrison: '干员特质',
   rewards: '回合奖励与倍率',
+  misc: '其他数据',
   diff: '赛季数据对比',
 }
 
@@ -54,6 +56,7 @@ export default function App() {
       case 'effects': return <EffectsEditor store={store} />
       case 'garrison': return <GarrisonEditor store={store} />
       case 'rewards': return <RewardsEditor store={store} />
+      case 'misc': return <MiscEditor store={store} />
       case 'diff': return <DiffViewer store={store} />
       default: return null
     }
