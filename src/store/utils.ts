@@ -1,6 +1,80 @@
 import { characterNameMap } from '../misc-game-data'
 import type { AutoChessSeasonData, CharShopChessData } from '../autochess-season-data'
 
+const sortCollator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
+
+const IDENTIFIER_DICT_FIELDS = new Set<keyof AutoChessSeasonData>([
+  'bondInfoDict',
+  'charChessDataDict',
+  'trapChessDataDict',
+])
+
+function sortKeys(keys: string[]): string[] {
+  return [...keys].sort((a, b) => sortCollator.compare(a, b))
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function deepSortValue<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(item => deepSortValue(item)) as T
+  if (!isPlainObject(value)) return value
+
+  const result: Record<string, unknown> = {}
+  for (const key of sortKeys(Object.keys(value))) {
+    result[key] = deepSortValue(value[key])
+  }
+  return result as T
+}
+
+function normalizeIdentifierDict<T extends Record<string, unknown>>(
+  dict: Record<string, T>,
+  includeIdentifier: boolean
+): Record<string, T> {
+  const result: Record<string, T> = {}
+  let identifier = 0
+
+  for (const key of sortKeys(Object.keys(dict))) {
+    const { identifier: _ignored, ...rest } = dict[key] as T & { identifier?: number }
+    const normalized = includeIdentifier
+      ? { ...rest, identifier }
+      : rest
+    result[key] = deepSortValue(normalized as T)
+    identifier += 1
+  }
+
+  return result
+}
+
+export function normalizeIdentifierDictForRuntime<T extends Record<string, unknown>>(
+  dict: Record<string, T>
+): Record<string, T> {
+  return normalizeIdentifierDict(dict, true)
+}
+
+export function normalizeIdentifierDictForDirectory<T extends Record<string, unknown>>(
+  dict: Record<string, T>
+): Record<string, T> {
+  return normalizeIdentifierDict(dict, false)
+}
+
+function normalizeSeasonData(
+  data: AutoChessSeasonData,
+  includeIdentifiers: boolean
+): AutoChessSeasonData {
+  const normalized: Partial<AutoChessSeasonData> = {}
+
+  for (const key of Object.keys(data) as (keyof AutoChessSeasonData)[]) {
+    const value = data[key]
+    ;(normalized as Record<string, unknown>)[key] = IDENTIFIER_DICT_FIELDS.has(key) && isPlainObject(value)
+      ? normalizeIdentifierDict(value as Record<string, Record<string, unknown>>, includeIdentifiers)
+      : deepSortValue(value)
+  }
+
+  return normalized as AutoChessSeasonData
+}
+
 /** 通过 charId 获取中文名 */
 export function getCharName(charId: string | null | undefined): string {
   if (!charId) return '（未知）'
@@ -49,6 +123,21 @@ export function reassignIdentifiers<T extends { identifier: number }>(
     result[k] = { ...v, identifier: i++ }
   }
   return result
+}
+
+/** 运行时使用：按稳定顺序重建 identifier，并保证对象键顺序稳定 */
+export function normalizeSeasonDataForRuntime(data: AutoChessSeasonData): AutoChessSeasonData {
+  return normalizeSeasonData(data, true)
+}
+
+/** 导出单文件 JSON：按稳定顺序重建 identifier */
+export function normalizeSeasonDataForJson(data: AutoChessSeasonData): AutoChessSeasonData {
+  return normalizeSeasonData(data, true)
+}
+
+/** 保存到目录：移除落盘 identifier，并保证对象键顺序稳定 */
+export function normalizeSeasonDataForDirectory(data: AutoChessSeasonData): AutoChessSeasonData {
+  return normalizeSeasonData(data, false)
 }
 
 /** 清理富文本标签，仅保留纯文本 */

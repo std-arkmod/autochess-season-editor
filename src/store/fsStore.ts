@@ -22,6 +22,11 @@
  */
 
 import type { AutoChessSeasonData } from '../autochess-season-data'
+import {
+  normalizeIdentifierDictForDirectory,
+  normalizeSeasonDataForDirectory,
+  normalizeSeasonDataForRuntime,
+} from './utils'
 
 /** 所有以独立文件存储的 dict 字段名 */
 const DICT_FIELDS: (keyof AutoChessSeasonData)[] = [
@@ -147,11 +152,19 @@ export async function loadFromDirectory(
         if (value !== null) dict[key] = value
       }
       ;(data as unknown as Record<string, unknown>)[field] = dict
+
+      if (field === 'bondInfoDict' || field === 'charChessDataDict' || field === 'trapChessDataDict') {
+        const cleanedDict = normalizeIdentifierDictForDirectory(dict as Record<string, Record<string, unknown>>)
+        for (const [key, value] of Object.entries(cleanedDict)) {
+          await writeJsonFileIfChanged(subDir, `${key}.json`, value)
+        }
+      }
     } catch {
       ;(data as unknown as Record<string, unknown>)[field] = {}
     }
   }
-  return { data: data as AutoChessSeasonData, meta }
+
+  return { data: normalizeSeasonDataForRuntime(data as AutoChessSeasonData), meta }
 }
 
 export async function saveToDirectory(
@@ -161,6 +174,7 @@ export async function saveToDirectory(
   /** 第一个文件实际写入前调用，用于提前更新 lastOwnWrite，避免 watchDirectory 误判 */
   onFirstWrite?: () => void
 ): Promise<number> {
+  const normalizedData = normalizeSeasonDataForDirectory(data)
   let firstWriteCalled = false
   const notifyFirst = () => {
     if (!firstWriteCalled) {
@@ -172,13 +186,13 @@ export async function saveToDirectory(
   const constFields: Partial<AutoChessSeasonData> = {}
   for (const field of CONST_FIELDS) {
     ;(constFields as unknown as Record<string, unknown>)[field] =
-      (data as unknown as Record<string, unknown>)[field]
+      (normalizedData as unknown as Record<string, unknown>)[field]
   }
   const projectChanged = await writeJsonFileIfChanged(dir, 'project.json', { label, version: 1, constFields })
   if (projectChanged) notifyFirst()
 
   for (const field of DICT_FIELDS) {
-    const dict = (data as unknown as Record<string, unknown>)[field] as Record<string, unknown> | null
+    const dict = (normalizedData as unknown as Record<string, unknown>)[field] as Record<string, unknown> | null
     if (!dict) continue
     const subDir = await getOrCreateDir(dir, field as string)
 

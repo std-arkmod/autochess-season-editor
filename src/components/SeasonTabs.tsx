@@ -12,7 +12,11 @@ import {
 } from '@tabler/icons-react'
 import type { AutoChessSeasonData } from '../autochess-season-data'
 import type { DataStore } from '../store/dataStore'
-import { downloadJson } from '../store/utils'
+import {
+  downloadJson,
+  normalizeSeasonDataForJson,
+  normalizeSeasonDataForRuntime,
+} from '../store/utils'
 import {
   openDirectory,
   loadFromDirectory,
@@ -179,7 +183,7 @@ export function SeasonTabs({ store }: Props) {
 
   function handleImport() {
     try {
-      const data = JSON.parse(jsonText) as AutoChessSeasonData
+      const data = normalizeSeasonDataForRuntime(JSON.parse(jsonText) as AutoChessSeasonData)
       if (!data.modeDataDict || !data.bondInfoDict || !data.charShopChessDatas) {
         throw new Error('数据结构不完整，请确认是 AutoChessSeasonData 格式')
       }
@@ -200,7 +204,7 @@ export function SeasonTabs({ store }: Props) {
   function handleExport(id: string) {
     const season = seasons.find(s => s.id === id)
     if (!season) return
-    downloadJson(season.data, `${season.label}.json`)
+    downloadJson(normalizeSeasonDataForJson(season.data), `${season.label}.json`)
     markClean(id)
     notifications.show({ title: '导出成功', message: `${season.label}.json 已下载`, color: 'teal' })
   }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { AutoChessSeasonData } from '../autochess-season-data'
+import { normalizeSeasonDataForRuntime } from './utils'
 
 export interface SeasonSlot {
   id: string
@@ -54,7 +55,10 @@ function loadFromStorage(): SeasonSlot[] {
   try {
     const raw = localStorage.getItem(LS_KEY)
     if (!raw) return []
-    return JSON.parse(raw) as SeasonSlot[]
+    return (JSON.parse(raw) as SeasonSlot[]).map(season => ({
+      ...season,
+      data: normalizeSeasonDataForRuntime(season.data),
+    }))
   } catch {
     return []
   }
@@ -108,7 +112,7 @@ export function useDataStore() {
 
   const addSeason = useCallback((label: string, data: AutoChessSeasonData) => {
     const id = `season_${Date.now()}`
-    setSeasons(prev => [...prev, { id, label, data, isDirty: false }])
+    setSeasons(prev => [...prev, { id, label, data: normalizeSeasonDataForRuntime(data), isDirty: false }])
     setActiveSeasonId(id)
     return id
   }, [])

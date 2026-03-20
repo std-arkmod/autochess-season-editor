@@ -283,6 +283,7 @@ export const characterNameMap = {
     char_369_bena: '贝娜',
     char_4016_kazema: '风丸',
     char_4124_iana: '双月',
+    char_4056_titi: '缇缇',
     char_4183_mortis: '若叶睦',
     char_4151_tinman: '锡人',
     char_4191_tippi: '蒂比',
