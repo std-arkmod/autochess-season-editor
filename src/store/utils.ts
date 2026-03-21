@@ -11,9 +11,9 @@ const IDENTIFIER_DICT_FIELDS = new Set<keyof AutoChessSeasonData>([
 
 function sortKeys(keys: string[]): string[] {
   const getSuffixRank = (key: string) => {
-    if (key.endsWith('_a')) return 1
-    if (key.endsWith('_b')) return 2
-    return 0
+    if (key.endsWith('_a')) return 0
+    if (key.endsWith('_b')) return 1
+    return 2
   }
 
   const getBaseKey = (key: string) => key.replace(/_[ab]$/, '')
