@@ -27,7 +27,7 @@ import type {
   BondInfoDict,
   ActiveCondition,
 } from "../../autochess-season-data";
-import { getChessName } from "../../store/utils";
+import { getChessName, normalizeSeasonDataForRuntime } from "../../store/utils";
 import { RichTextPreview } from "../shared/RichTextPreview";
 import type { DataStore } from "../../store/dataStore";
 
@@ -100,7 +100,7 @@ export function BondsEditor({ store }: Props) {
   const editing = editingId ? bonds[editingId] : null;
 
   function patchBond(id: string, patch: Partial<BondInfoDict>) {
-    updateSeason(activeSeasonId!, (data) => ({
+    updateSeason(activeSeasonId!, (data) => normalizeSeasonDataForRuntime({
       ...data,
       bondInfoDict: {
         ...data.bondInfoDict,
@@ -125,7 +125,7 @@ export function BondsEditor({ store }: Props) {
       ...Object.values(bonds).map((b) => b.identifier),
       -1,
     );
-    updateSeason(activeSeasonId!, (data) => ({
+    updateSeason(activeSeasonId!, (data) => normalizeSeasonDataForRuntime({
       ...data,
       bondInfoDict: {
         ...data.bondInfoDict,
@@ -153,7 +153,7 @@ export function BondsEditor({ store }: Props) {
       sorted.forEach((b, i) => {
         next[b.bondId] = { ...next[b.bondId], identifier: i };
       });
-      return { ...data, bondInfoDict: next };
+      return normalizeSeasonDataForRuntime({ ...data, bondInfoDict: next });
     });
     if (editingId === id) setEditingId(null);
     setDeleteConfirm(null);

@@ -1,5 +1,5 @@
 import { characterNameMap } from '../misc-game-data'
-import type { AutoChessSeasonData, CharShopChessData } from '../autochess-season-data'
+import type { AutoChessSeasonData, BondInfoDict, CharChessDataDict, CharShopChessData } from '../autochess-season-data'
 
 const sortCollator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
@@ -63,6 +63,22 @@ function normalizeIdentifierDict<T extends Record<string, unknown>>(
   return result
 }
 
+function buildBondIdsByChessId(bondInfoDict: Record<string, BondInfoDict>): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  const bonds = Object.values(bondInfoDict).sort(
+    (a, b) => a.identifier - b.identifier || sortCollator.compare(a.bondId, b.bondId)
+  )
+
+  for (const bond of bonds) {
+    for (const chessId of bond.chessIdList) {
+      result[chessId] ??= []
+      result[chessId].push(bond.bondId)
+    }
+  }
+
+  return result
+}
+
 function normalizeChessIdentifierDict<T extends Record<string, unknown>>(
   dict: Record<string, T>,
   identifiersByKey: Record<string, number>,
@@ -76,6 +92,28 @@ function normalizeChessIdentifierDict<T extends Record<string, unknown>>(
       ? { ...rest, identifier: identifiersByKey[key] }
       : rest
     result[key] = deepSortValue(normalized as T)
+  }
+
+  return result
+}
+
+function normalizeCharChessDict(
+  dict: Record<string, CharChessDataDict>,
+  identifiersByKey: Record<string, number>,
+  bondIdsByChessId: Record<string, string[]>,
+  includeIdentifier: boolean,
+  includeBondIds: boolean
+): Record<string, CharChessDataDict> {
+  const result: Record<string, CharChessDataDict> = {}
+
+  for (const key of sortKeys(Object.keys(dict))) {
+    const { identifier: _ignoredIdentifier, bondIds: _ignoredBondIds, ...rest } = dict[key]
+    const normalized: CharChessDataDict = {
+      ...rest,
+      ...(includeIdentifier ? { identifier: identifiersByKey[key] } : {}),
+      ...(includeBondIds ? { bondIds: bondIdsByChessId[key] ?? [] } : {}),
+    } as CharChessDataDict
+    result[key] = deepSortValue(normalized)
   }
 
   return result
@@ -98,6 +136,7 @@ function normalizeSeasonData(
   includeIdentifiers: boolean
 ): AutoChessSeasonData {
   const normalized: Partial<AutoChessSeasonData> = {}
+  const bondIdsByChessId = buildBondIdsByChessId(data.bondInfoDict ?? {})
   const chessIdentifierKeys = sortKeys([
     ...Object.keys(data.charChessDataDict ?? {}),
     ...Object.keys(data.trapChessDataDict ?? {}),
@@ -110,7 +149,7 @@ function normalizeSeasonData(
     const value = data[key]
     ;(normalized as Record<string, unknown>)[key] =
       key === 'charChessDataDict' && isPlainObject(value)
-        ? normalizeChessIdentifierDict(value as Record<string, Record<string, unknown>>, chessIdentifiersByKey, includeIdentifiers)
+        ? normalizeCharChessDict(value as Record<string, CharChessDataDict>, chessIdentifiersByKey, bondIdsByChessId, includeIdentifiers, includeIdentifiers)
         : key === 'trapChessDataDict' && isPlainObject(value)
           ? normalizeChessIdentifierDict(value as Record<string, Record<string, unknown>>, chessIdentifiersByKey, includeIdentifiers)
           : IDENTIFIER_DICT_FIELDS.has(key) && isPlainObject(value)

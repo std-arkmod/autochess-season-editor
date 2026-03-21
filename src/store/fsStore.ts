@@ -166,7 +166,19 @@ export async function loadFromDirectory(
     }
   }
 
-  return { data: normalizeSeasonDataForRuntime(data as AutoChessSeasonData), meta }
+  const runtimeData = normalizeSeasonDataForRuntime(data as AutoChessSeasonData)
+  const cleanedData = normalizeSeasonDataForDirectory(runtimeData)
+
+  try {
+    const charChessDir = await dir.getDirectoryHandle('charChessDataDict')
+    for (const [key, value] of Object.entries(cleanedData.charChessDataDict)) {
+      await writeJsonFileIfChanged(charChessDir, `${key}.json`, value)
+    }
+  } catch {
+    // ignore missing dir
+  }
+
+  return { data: runtimeData, meta }
 }
 
 export async function saveToDirectory(
