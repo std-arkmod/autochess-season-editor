@@ -10,7 +10,23 @@ const IDENTIFIER_DICT_FIELDS = new Set<keyof AutoChessSeasonData>([
 ])
 
 function sortKeys(keys: string[]): string[] {
-  return [...keys].sort((a, b) => sortCollator.compare(a, b))
+  const getSuffixRank = (key: string) => {
+    if (key.endsWith('_a')) return 1
+    if (key.endsWith('_b')) return 2
+    return 0
+  }
+
+  const getBaseKey = (key: string) => key.replace(/_[ab]$/, '')
+
+  return [...keys].sort((a, b) => {
+    const suffixRankDiff = getSuffixRank(a) - getSuffixRank(b)
+    if (suffixRankDiff !== 0) return suffixRankDiff
+
+    const baseDiff = sortCollator.compare(getBaseKey(a), getBaseKey(b))
+    if (baseDiff !== 0) return baseDiff
+
+    return sortCollator.compare(a, b)
+  })
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
