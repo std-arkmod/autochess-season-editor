@@ -9,7 +9,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type { CharChessDataDict, CharShopChessData, ShopCharChessInfoDatumEvolvePhase, ChessType } from '../../autochess-season-data'
-import { chessTypeLabel, evolvePhaseLabel, getCharName } from '../../store/utils'
+import { chessTypeLabel, evolvePhaseLabel, getCharName, normalizeSeasonDataForRuntime } from '../../store/utils'
 import { ChessLevelBadge } from '../shared/ChessLevelBadge'
 import { characterNameMap } from '../../misc-game-data'
 import type { DataStore } from '../../store/dataStore'
@@ -71,7 +71,7 @@ export function ChessEditor({ store }: Props) {
   const [newChessId, setNewChessId] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
-  const { charShopChessDatas, charChessDataDict, bondInfoDict, chessNormalIdLookupDict, garrisonDataDict } = activeSeason?.data ?? {}
+  const { charShopChessDatas, charChessDataDict, trapChessDataDict, bondInfoDict, chessNormalIdLookupDict, garrisonDataDict } = activeSeason?.data ?? {}
 
   // 切换赛季时清空选中
   useEffect(() => {
@@ -150,8 +150,12 @@ export function ChessEditor({ store }: Props) {
       return
     }
     const goldenId = id.replace(/_a$/, '_b')
-    const maxIdentifier = Math.max(...Object.values(charChessDataDict).map(c => c.identifier), -1)
-    updateSeason(activeSeasonId!, data => ({
+    const maxIdentifier = Math.max(
+      ...Object.values(charChessDataDict).map(c => c.identifier),
+      ...Object.values(trapChessDataDict ?? {}).map(t => t.identifier),
+      -1
+    )
+    updateSeason(activeSeasonId!, data => normalizeSeasonDataForRuntime({
       ...data,
       charShopChessDatas: {
         ...data.charShopChessDatas,
@@ -183,13 +187,15 @@ export function ChessEditor({ store }: Props) {
       const nextChess = { ...data.charChessDataDict }
       delete nextChess[id]
       if (goldenId) delete nextChess[goldenId]
-      // 重排 identifier
-      let i = 0
-      for (const k of Object.keys(nextChess)) nextChess[k] = { ...nextChess[k], identifier: i++ }
       const nextLookup = { ...data.chessNormalIdLookupDict }
       delete nextLookup[id]
       if (goldenId) delete nextLookup[goldenId]
-      return { ...data, charShopChessDatas: nextShop, charChessDataDict: nextChess, chessNormalIdLookupDict: nextLookup }
+      return normalizeSeasonDataForRuntime({
+        ...data,
+        charShopChessDatas: nextShop,
+        charChessDataDict: nextChess,
+        chessNormalIdLookupDict: nextLookup,
+      })
     })
     if (editingId === id) setEditingId(null)
     setDeleteConfirm(null)

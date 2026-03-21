@@ -47,6 +47,24 @@ function normalizeIdentifierDict<T extends Record<string, unknown>>(
   return result
 }
 
+function normalizeChessIdentifierDict<T extends Record<string, unknown>>(
+  dict: Record<string, T>,
+  identifiersByKey: Record<string, number>,
+  includeIdentifier: boolean
+): Record<string, T> {
+  const result: Record<string, T> = {}
+
+  for (const key of sortKeys(Object.keys(dict))) {
+    const { identifier: _ignored, ...rest } = dict[key] as T & { identifier?: number }
+    const normalized = includeIdentifier
+      ? { ...rest, identifier: identifiersByKey[key] }
+      : rest
+    result[key] = deepSortValue(normalized as T)
+  }
+
+  return result
+}
+
 export function normalizeIdentifierDictForRuntime<T extends Record<string, unknown>>(
   dict: Record<string, T>
 ): Record<string, T> {
@@ -64,12 +82,24 @@ function normalizeSeasonData(
   includeIdentifiers: boolean
 ): AutoChessSeasonData {
   const normalized: Partial<AutoChessSeasonData> = {}
+  const chessIdentifierKeys = sortKeys([
+    ...Object.keys(data.charChessDataDict ?? {}),
+    ...Object.keys(data.trapChessDataDict ?? {}),
+  ])
+  const chessIdentifiersByKey = Object.fromEntries(
+    chessIdentifierKeys.map((key, index) => [key, index])
+  ) as Record<string, number>
 
   for (const key of Object.keys(data) as (keyof AutoChessSeasonData)[]) {
     const value = data[key]
-    ;(normalized as Record<string, unknown>)[key] = IDENTIFIER_DICT_FIELDS.has(key) && isPlainObject(value)
-      ? normalizeIdentifierDict(value as Record<string, Record<string, unknown>>, includeIdentifiers)
-      : deepSortValue(value)
+    ;(normalized as Record<string, unknown>)[key] =
+      key === 'charChessDataDict' && isPlainObject(value)
+        ? normalizeChessIdentifierDict(value as Record<string, Record<string, unknown>>, chessIdentifiersByKey, includeIdentifiers)
+        : key === 'trapChessDataDict' && isPlainObject(value)
+          ? normalizeChessIdentifierDict(value as Record<string, Record<string, unknown>>, chessIdentifiersByKey, includeIdentifiers)
+          : IDENTIFIER_DICT_FIELDS.has(key) && isPlainObject(value)
+            ? normalizeIdentifierDict(value as Record<string, Record<string, unknown>>, includeIdentifiers)
+            : deepSortValue(value)
   }
 
   return normalized as AutoChessSeasonData

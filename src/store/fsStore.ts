@@ -9,6 +9,7 @@
  *     charChessDataDict/
  *     charShopChessDatas/
  *     trapChessDataDict/
+ *     trapShopChessDatas/
  *     effectInfoDataDict/
  *     effectBuffInfoDataDict/
  *     bossInfoDict/
@@ -35,6 +36,7 @@ const DICT_FIELDS: (keyof AutoChessSeasonData)[] = [
   'charChessDataDict',
   'charShopChessDatas',
   'trapChessDataDict',
+  'trapShopChessDatas',
   'effectInfoDataDict',
   'effectBuffInfoDataDict',
   'bossInfoDict',

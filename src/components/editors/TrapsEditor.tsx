@@ -9,7 +9,7 @@ import { useState, useMemo } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type { TrapChessDataDict, TrapShopChessData, ItemTypeEnum } from '../../autochess-season-data'
-import { getCharName } from '../../store/utils'
+import { getCharName, normalizeSeasonDataForRuntime } from '../../store/utils'
 import { RichTextPreview } from '../shared/RichTextPreview'
 import type { DataStore } from '../../store/dataStore'
 
@@ -59,6 +59,7 @@ export function TrapsEditor({ store }: Props) {
   if (!activeSeason) return <Text c="dimmed">请先加载赛季数据</Text>
 
   const {
+    charChessDataDict = {},
     trapChessDataDict,
     trapShopChessDatas = {},
     effectInfoDataDict,
@@ -142,8 +143,12 @@ export function TrapsEditor({ store }: Props) {
       return
     }
     const goldenId = id.replace(/_a$/, '_b')
-    const maxId = Math.max(...Object.values(trapChessDataDict).map(t => t.identifier), -1)
-    updateSeason(activeSeasonId!, data => ({
+    const maxId = Math.max(
+      ...Object.values(trapChessDataDict).map(t => t.identifier),
+      ...Object.values(charChessDataDict).map(c => c.identifier),
+      -1
+    )
+    updateSeason(activeSeasonId!, data => normalizeSeasonDataForRuntime({
       ...data,
       trapChessDataDict: {
         ...data.trapChessDataDict,
@@ -178,7 +183,12 @@ export function TrapsEditor({ store }: Props) {
       const nextLookup = { ...data.chessNormalIdLookupDict }
       delete nextLookup[id]
       if (golden) delete nextLookup[golden]
-      return { ...data, trapChessDataDict: nextTrap, trapShopChessDatas: nextShop, chessNormalIdLookupDict: nextLookup }
+      return normalizeSeasonDataForRuntime({
+        ...data,
+        trapChessDataDict: nextTrap,
+        trapShopChessDatas: nextShop,
+        chessNormalIdLookupDict: nextLookup,
+      })
     })
     if (editingId === id) setEditingId(null)
     setDeleteConfirm(null)
