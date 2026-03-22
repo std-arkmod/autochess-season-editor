@@ -126,7 +126,7 @@ export function SeasonTabs({ store, currentUserId }: Props) {
   // Share modal
   const [shareSeasonId, setShareSeasonId] = useState<string | null>(null)
   const [permissions, setPermissions] = useState<SeasonPermission[]>([])
-  const [allUsers, setAllUsers] = useState<AuthUser[]>([])
+  const [allUsers, setAllUsers] = useState<Pick<AuthUser, 'id' | 'username' | 'displayName'>[]>([])
   const [shareUserId, setShareUserId] = useState<string | null>(null)
   const [shareRole, setShareRole] = useState<'editor' | 'viewer'>('editor')
 
