@@ -7,10 +7,24 @@ import { authMiddleware, requireRole } from '../middleware/auth.ts'
 
 const users = new Hono()
 
-// All routes require admin
+// Lightweight user list for sharing — any authenticated user can access
+users.get('/list', authMiddleware, async (c) => {
+  const result = await db
+    .select({
+      id: schema.users.id,
+      username: schema.users.username,
+      displayName: schema.users.displayName,
+    })
+    .from(schema.users)
+    .orderBy(schema.users.createdAt)
+
+  return c.json({ users: result })
+})
+
+// All remaining routes require admin
 users.use('*', authMiddleware, requireRole('admin'))
 
-// List all users
+// List all users (admin — includes role & createdAt)
 users.get('/', async (c) => {
   const result = await db
     .select({

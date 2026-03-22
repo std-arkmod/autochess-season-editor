@@ -145,7 +145,11 @@ export const api = {
       method: 'POST',
     }),
 
-  // ── Users (admin only) ──
+  // ── Users ──
+  listUsersForSharing: () =>
+    request<{ users: Pick<AuthUser, 'id' | 'username' | 'displayName'>[] }>('/api/users/list'),
+
+  // Admin only
   listUsers: () =>
     request<{ users: AuthUser[] }>('/api/users'),
 

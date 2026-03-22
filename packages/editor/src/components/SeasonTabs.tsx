@@ -218,7 +218,7 @@ export function SeasonTabs({ store, currentUserId }: Props) {
     try {
       const [permRes, usersRes] = await Promise.all([
         api.listPermissions(seasonId),
-        api.listUsers(),
+        api.listUsersForSharing(),
       ])
       setPermissions(permRes.permissions)
       setAllUsers(usersRes.users)

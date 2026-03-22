@@ -23,6 +23,7 @@ const clients = new Map<WebSocket, ConnectedClient>()
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const SAVE_DEBOUNCE_MS = 2000
+const PING_INTERVAL_MS = 30_000
 
 function getOrCreateDoc(seasonId: string): Promise<Y.Doc> {
   const existing = docs.get(seasonId)
@@ -62,29 +63,40 @@ function broadcastToRoom(seasonId: string, message: unknown, exclude?: WebSocket
   }
 }
 
-function getRoomPresence(seasonId: string): Array<{ userId: string; displayName: string; module?: string; focusId?: string | null; focusField?: string | null }> {
-  const result: Array<{ userId: string; displayName: string; module?: string; focusId?: string | null; focusField?: string | null }> = []
-  for (const [, client] of clients) {
-    if (client.seasonId === seasonId) {
-      result.push({
+function getRoomPresence(seasonId: string, excludeWs?: WebSocket): Array<{ userId: string; displayName: string; module?: string; focusId?: string | null; focusField?: string | null }> {
+  // Deduplicate by userId (same user may have multiple tabs)
+  const seen = new Map<string, { userId: string; displayName: string; module?: string; focusId?: string | null; focusField?: string | null }>()
+  for (const [ws, client] of clients) {
+    if (client.seasonId === seasonId && ws !== excludeWs) {
+      // Last connection wins for awareness info
+      seen.set(client.userId, {
         userId: client.userId,
         displayName: client.displayName,
         ...client.awareness,
       })
     }
   }
-  return result
+  return [...seen.values()]
 }
 
-/** Broadcast a season_deleted event to all clients in the room.
- *  Clients are expected to close the connection themselves after receiving this message.
- *  Yjs doc cleanup happens naturally when the last client disconnects (existing close handler). */
+/** Broadcast a season_deleted event to all clients in the room. */
 export function notifySeasonDeleted(seasonId: string) {
   broadcastToRoom(seasonId, { type: 'season_deleted', seasonId })
 }
 
 export function setupWebSocketServer(server: Server) {
   const wss = new WebSocketServer({ noServer: true })
+
+  // Ping all clients periodically to keep connections alive
+  const pingInterval = setInterval(() => {
+    for (const [ws] of clients) {
+      if (ws.readyState === ws.OPEN) {
+        ws.ping()
+      }
+    }
+  }, PING_INTERVAL_MS)
+
+  wss.on('close', () => clearInterval(pingInterval))
 
   server.on('upgrade', (request: IncomingMessage, socket, head) => {
     const url = new URL(request.url ?? '', `http://${request.headers.host}`)
@@ -128,6 +140,19 @@ export function setupWebSocketServer(server: Server) {
     }
     clients.set(ws, client)
 
+    // Terminate connection if pong not received
+    let alive = true
+    ws.on('pong', () => { alive = true })
+
+    const aliveCheck = setInterval(() => {
+      if (!alive) {
+        clearInterval(aliveCheck)
+        ws.terminate()
+        return
+      }
+      alive = false
+    }, PING_INTERVAL_MS + 5000)
+
     try {
       // Load the doc and send full state
       const doc = await getOrCreateDoc(seasonId)
@@ -145,13 +170,14 @@ export function setupWebSocketServer(server: Server) {
         displayName: username,
       }, ws)
 
-      // Send current presence
+      // Send current presence (excluding self, self is already known to the client)
       ws.send(JSON.stringify({
         type: 'presence_list',
-        users: getRoomPresence(seasonId),
+        users: getRoomPresence(seasonId, ws),
       }))
     } catch (err) {
       console.error('Failed to initialize WebSocket connection:', err)
+      clearInterval(aliveCheck)
       ws.close()
       return
     }
@@ -203,12 +229,17 @@ export function setupWebSocketServer(server: Server) {
     })
 
     ws.on('close', () => {
+      clearInterval(aliveCheck)
       clients.delete(ws)
 
-      broadcastToRoom(seasonId, {
-        type: 'user_left',
-        userId,
-      })
+      // Only send user_left if this user has no other connections in the room
+      const stillConnected = [...clients.values()].some(c => c.seasonId === seasonId && c.userId === userId)
+      if (!stillConnected) {
+        broadcastToRoom(seasonId, {
+          type: 'user_left',
+          userId,
+        })
+      }
 
       // If no more clients for this doc, save and cleanup after a delay
       const hasClients = [...clients.values()].some(c => c.seasonId === seasonId)

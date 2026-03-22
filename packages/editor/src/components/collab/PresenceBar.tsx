@@ -1,5 +1,5 @@
-import { Group, Avatar, Tooltip, Text, ActionIcon } from '@mantine/core'
-import { IconCircleFilled, IconEye, IconEyeOff } from '@tabler/icons-react'
+import { Group, Avatar, Tooltip, Text, ActionIcon, Button } from '@mantine/core'
+import { IconCircleFilled, IconEye, IconEyeOff, IconRefresh } from '@tabler/icons-react'
 import type { CollabUser } from '../../store/collabStore'
 import { useCollab } from '../../context/CollabContext'
 import { getUserColor } from './presenceUtils'
@@ -8,20 +8,34 @@ interface PresenceBarProps {
   users: CollabUser[]
   currentUserId?: string
   connected: boolean
+  reconnectFailed?: boolean
+  onReconnect?: () => void
 }
 
-export function PresenceBar({ users, currentUserId, connected }: PresenceBarProps) {
+export function PresenceBar({ users, currentUserId, connected, reconnectFailed, onReconnect }: PresenceBarProps) {
   const { followingUserId, setFollowingUserId } = useCollab()
   const otherUsers = users.filter(u => u.userId !== currentUserId)
 
   return (
     <Group gap={6}>
-      <Tooltip label={connected ? '已连接' : '连接中...'}>
-        <IconCircleFilled
-          size={8}
-          color={connected ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-yellow-6)'}
-        />
-      </Tooltip>
+      {reconnectFailed ? (
+        <Button
+          size="compact-xs"
+          variant="light"
+          color="red"
+          leftSection={<IconRefresh size={12} />}
+          onClick={onReconnect}
+        >
+          重新连接
+        </Button>
+      ) : (
+        <Tooltip label={connected ? '已连接' : '连接中...'}>
+          <IconCircleFilled
+            size={8}
+            color={connected ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-yellow-6)'}
+          />
+        </Tooltip>
+      )}
 
       {otherUsers.length > 0 && (
         <Group gap={4}>

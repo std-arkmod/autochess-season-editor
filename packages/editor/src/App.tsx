@@ -241,6 +241,8 @@ export default function App() {
             users={collab.users}
             currentUserId={auth.user?.id}
             connected={collab.connected}
+            reconnectFailed={collab.reconnectFailed}
+            onReconnect={collab.manualReconnect}
           />
         )}
 

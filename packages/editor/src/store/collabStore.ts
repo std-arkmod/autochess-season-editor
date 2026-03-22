@@ -37,15 +37,33 @@ interface WsMessage {
 export type OnRemoteUpdate = (data: AutoChessSeasonData) => void
 export type OnSeasonDeleted = (seasonId: string) => void
 
+const RECONNECT_INTERVAL = 2000
+const MAX_RECONNECT_ATTEMPTS = 10
+
+function buildWsUrl(seasonId: string, token: string): string {
+  const apiBase = import.meta.env.VITE_API_URL ?? ''
+  if (apiBase) {
+    const url = new URL(apiBase)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.pathname = `/yjs/${seasonId}`
+    url.search = `?token=${token}`
+    return url.toString()
+  }
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${wsProtocol}//${window.location.host}/yjs/${seasonId}?token=${token}`
+}
+
 export function useCollabStore(seasonId: string | null, token: string | null) {
   const [doc, setDoc] = useState<Y.Doc | null>(null)
   const [connected, setConnected] = useState(false)
   const [synced, setSynced] = useState(false)
   const [users, setUsers] = useState<CollabUser[]>([])
+  const [reconnectFailed, setReconnectFailed] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const docRef = useRef<Y.Doc | null>(null)
   const onRemoteUpdateRef = useRef<OnRemoteUpdate | null>(null)
   const onSeasonDeletedRef = useRef<OnSeasonDeleted | null>(null)
+  const connectRef = useRef<(() => void) | null>(null)
 
   /** Register callback for remote updates */
   const setOnRemoteUpdate = useCallback((cb: OnRemoteUpdate | null) => {
@@ -65,93 +83,15 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
     docRef.current = ydoc
     setDoc(ydoc)
 
-    const apiBase = import.meta.env.VITE_API_URL ?? ''
-    let wsUrl: string
-    if (apiBase) {
-      // Production: derive WebSocket URL from API base (e.g. https://api.example.com → wss://api.example.com)
-      const url = new URL(apiBase)
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-      url.pathname = `/yjs/${seasonId}`
-      url.search = `?token=${token}`
-      wsUrl = url.toString()
-    } else {
-      // Development: same host as the page
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      wsUrl = `${wsProtocol}//${window.location.host}/yjs/${seasonId}?token=${token}`
-    }
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    ws.onopen = () => setConnected(true)
-    ws.onclose = () => setConnected(false)
-
-    ws.onmessage = (event) => {
-      try {
-        const message: WsMessage = JSON.parse(event.data)
-
-        switch (message.type) {
-          case 'sync': {
-            const state = base64ToUint8Array(message.state as string)
-            Y.applyUpdate(ydoc, state, 'remote')
-            setSynced(true)
-            break
-          }
-
-          case 'update': {
-            // Remote update from another client — mark origin as 'remote'
-            const update = base64ToUint8Array(message.update as string)
-            Y.applyUpdate(ydoc, update, 'remote')
-            // Notify App.tsx about the remote change
-            const data = yDocToPlainObject(ydoc)
-            if (Object.keys(data).length > 0 && onRemoteUpdateRef.current) {
-              onRemoteUpdateRef.current(data as unknown as AutoChessSeasonData)
-            }
-            break
-          }
-
-          case 'presence_list':
-            setUsers(message.users as CollabUser[])
-            break
-
-          case 'presence':
-            setUsers(prev => {
-              const filtered = prev.filter(u => u.userId !== (message.userId as string))
-              return [...filtered, {
-                userId: message.userId as string,
-                displayName: message.displayName as string,
-                module: message.module as string | undefined,
-                focusId: message.focusId as string | null | undefined,
-                focusField: message.focusField as string | null | undefined,
-              }]
-            })
-            break
-
-          case 'user_joined':
-            setUsers(prev => [...prev, {
-              userId: message.userId as string,
-              displayName: message.displayName as string,
-            }])
-            break
-
-          case 'user_left':
-            setUsers(prev => prev.filter(u => u.userId !== (message.userId as string)))
-            break
-
-          case 'season_deleted':
-            if (onSeasonDeletedRef.current) {
-              onSeasonDeletedRef.current(message.seasonId as string)
-            }
-            break
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err)
-      }
-    }
+    let reconnectAttempt = 0
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let intentionallyClosed = false
 
     // Send local Y.Doc changes to server (only local origin, not remote echoes)
     const updateHandler = (update: Uint8Array, origin: unknown) => {
       if (origin === 'remote') return
-      if (ws.readyState === WebSocket.OPEN) {
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: 'update',
           update: uint8ArrayToBase64(update),
@@ -160,9 +100,112 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
     }
     ydoc.on('update', updateHandler)
 
+    function connect() {
+      const wsUrl = buildWsUrl(seasonId!, token!)
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setConnected(true)
+        reconnectAttempt = 0
+        setReconnectFailed(false)
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        wsRef.current = null
+
+        if (!intentionallyClosed) {
+          if (reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempt++
+            console.log(`WebSocket closed, reconnecting in ${RECONNECT_INTERVAL}ms (attempt ${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`)
+            reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL)
+          } else {
+            console.log('Max reconnect attempts reached, manual reconnect required')
+            setReconnectFailed(true)
+          }
+        }
+      }
+
+      ws.onerror = () => {
+        // onclose will fire after onerror, reconnect is handled there
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const message: WsMessage = JSON.parse(event.data)
+
+          switch (message.type) {
+            case 'sync': {
+              const state = base64ToUint8Array(message.state as string)
+              Y.applyUpdate(ydoc, state, 'remote')
+              setSynced(true)
+              break
+            }
+
+            case 'update': {
+              const update = base64ToUint8Array(message.update as string)
+              Y.applyUpdate(ydoc, update, 'remote')
+              const data = yDocToPlainObject(ydoc)
+              if (Object.keys(data).length > 0 && onRemoteUpdateRef.current) {
+                onRemoteUpdateRef.current(data as unknown as AutoChessSeasonData)
+              }
+              break
+            }
+
+            case 'presence_list':
+              setUsers(message.users as CollabUser[])
+              break
+
+            case 'presence':
+              setUsers(prev => {
+                const filtered = prev.filter(u => u.userId !== (message.userId as string))
+                return [...filtered, {
+                  userId: message.userId as string,
+                  displayName: message.displayName as string,
+                  module: message.module as string | undefined,
+                  focusId: message.focusId as string | null | undefined,
+                  focusField: message.focusField as string | null | undefined,
+                }]
+              })
+              break
+
+            case 'user_joined':
+              setUsers(prev => {
+                // Deduplicate: don't add if already present
+                if (prev.some(u => u.userId === (message.userId as string))) return prev
+                return [...prev, {
+                  userId: message.userId as string,
+                  displayName: message.displayName as string,
+                }]
+              })
+              break
+
+            case 'user_left':
+              setUsers(prev => prev.filter(u => u.userId !== (message.userId as string)))
+              break
+
+            case 'season_deleted':
+              if (onSeasonDeletedRef.current) {
+                onSeasonDeletedRef.current(message.seasonId as string)
+              }
+              break
+          }
+        } catch (err) {
+          console.error('WebSocket message error:', err)
+        }
+      }
+    }
+
+    connectRef.current = connect
+    connect()
+
     return () => {
+      intentionallyClosed = true
+      connectRef.current = null
+      if (reconnectTimer) clearTimeout(reconnectTimer)
       ydoc.off('update', updateHandler)
-      ws.close()
+      wsRef.current?.close()
       ydoc.destroy()
       wsRef.current = null
       docRef.current = null
@@ -170,8 +213,17 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
       setConnected(false)
       setSynced(false)
       setUsers([])
+      setReconnectFailed(false)
     }
   }, [seasonId, token])
+
+  // Manual reconnect after max attempts exhausted
+  const manualReconnect = useCallback(() => {
+    if (connectRef.current) {
+      setReconnectFailed(false)
+      connectRef.current()
+    }
+  }, [])
 
   // Send presence update
   const updatePresence = useCallback((module: string, focusId: string | null, focusField?: string | null) => {
@@ -192,6 +244,9 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
   /**
    * Push a local edit to Y.Doc (which broadcasts to other clients).
    * Called by App.tsx after updateSeason modifies the React state.
+   *
+   * For dict fields (plain objects), uses nested YMaps so only changed
+   * records are sent over the wire instead of the entire dict.
    */
   const pushLocalEdit = useCallback((data: AutoChessSeasonData) => {
     const ydoc = docRef.current
@@ -200,15 +255,42 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
     const yMap = ydoc.getMap('season')
     ydoc.transact(() => {
       for (const [key, value] of Object.entries(data)) {
-        const newJson = JSON.stringify(value)
-        const oldJson = yMap.get(key)
-        if (oldJson !== newJson) {
-          yMap.set(key, newJson)
+        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+          // Dict field → use nested YMap for incremental sync
+          const dict = value as Record<string, unknown>
+          let nested = yMap.get(key)
+
+          // Migrate from old string format or create new nested YMap
+          if (!(nested instanceof Y.Map)) {
+            nested = new Y.Map<string>()
+            yMap.set(key, nested)
+          }
+          const nestedMap = nested as Y.Map<string>
+
+          // Update changed entries
+          const newKeys = new Set(Object.keys(dict))
+          for (const [subKey, subValue] of Object.entries(dict)) {
+            const newJson = JSON.stringify(subValue)
+            if (nestedMap.get(subKey) !== newJson) {
+              nestedMap.set(subKey, newJson)
+            }
+          }
+
+          // Remove deleted entries
+          nestedMap.forEach((_: unknown, subKey: string) => {
+            if (!newKeys.has(subKey)) {
+              nestedMap.delete(subKey)
+            }
+          })
+        } else {
+          // Array or primitive → store as JSON string
+          const newJson = JSON.stringify(value)
+          if (yMap.get(key) !== newJson) {
+            yMap.set(key, newJson)
+          }
         }
       }
     })
-    // The 'update' event fires → updateHandler sends to server
-    // Origin is not 'remote' so it will be broadcast
   }, [])
 
   return {
@@ -216,6 +298,8 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
     connected,
     synced,
     users,
+    reconnectFailed,
+    manualReconnect,
     updatePresence,
     getSeasonData,
     pushLocalEdit,
@@ -230,7 +314,22 @@ function yDocToPlainObject(doc: Y.Doc): Record<string, unknown> {
 
   const result: Record<string, unknown> = {}
   yMap.forEach((val, key) => {
-    if (typeof val === 'string') {
+    if (val instanceof Y.Map) {
+      // Nested YMap → reconstruct dict
+      const dict: Record<string, unknown> = {}
+      val.forEach((subVal: unknown, subKey: string) => {
+        if (typeof subVal === 'string') {
+          try {
+            dict[subKey] = JSON.parse(subVal)
+          } catch {
+            dict[subKey] = subVal
+          }
+        } else {
+          dict[subKey] = subVal
+        }
+      })
+      result[key] = dict
+    } else if (typeof val === 'string') {
       try {
         result[key] = JSON.parse(val)
       } catch {
