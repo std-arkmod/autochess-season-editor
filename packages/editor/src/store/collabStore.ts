@@ -65,9 +65,21 @@ export function useCollabStore(seasonId: string | null, token: string | null) {
     docRef.current = ydoc
     setDoc(ydoc)
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.host
-    const ws = new WebSocket(`${wsProtocol}//${wsHost}/yjs/${seasonId}?token=${token}`)
+    const apiBase = import.meta.env.VITE_API_URL ?? ''
+    let wsUrl: string
+    if (apiBase) {
+      // Production: derive WebSocket URL from API base (e.g. https://api.example.com → wss://api.example.com)
+      const url = new URL(apiBase)
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+      url.pathname = `/yjs/${seasonId}`
+      url.search = `?token=${token}`
+      wsUrl = url.toString()
+    } else {
+      // Development: same host as the page
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      wsUrl = `${wsProtocol}//${window.location.host}/yjs/${seasonId}?token=${token}`
+    }
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => setConnected(true)
