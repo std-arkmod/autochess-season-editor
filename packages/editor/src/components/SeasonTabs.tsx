@@ -1,7 +1,7 @@
 import {
   Stack, Group, Text, Badge, Button, Modal,
   Textarea, FileButton, ActionIcon, Menu, TextInput, Tooltip, Loader,
-  Select,
+  Select, Progress,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -19,12 +19,15 @@ import {
   downloadJson,
   normalizeSeasonDataForJson,
   normalizeSeasonDataForRuntime,
+  deepSortValue,
 } from '@autochess-editor/shared'
 import {
   openDirectory,
   loadFromDirectory,
   saveToDirectory,
   watchDirectory,
+  type SaveProgress,
+  type LoadProgress,
 } from '../store/fsStore'
 import { api, type SeasonPermission, type AuthUser } from '../api/client'
 
@@ -33,8 +36,32 @@ interface Props {
   currentUserId?: string
 }
 
-function FsSyncBadge({ status }: { status: 'synced' | 'saving' | 'unsaved' | undefined }) {
+const fieldLabelMap: Record<string, string> = {
+  'project.json': '常量数据',
+  modeDataDict: '游戏模式', bondInfoDict: '盟约', charChessDataDict: '棋子战斗数据',
+  charShopChessDatas: '棋子商店', trapChessDataDict: '装备战斗数据', trapShopChessDatas: '装备商店',
+  effectInfoDataDict: '效果信息', effectBuffInfoDataDict: '效果Buff', effectChoiceInfoDict: '效果选择',
+  bossInfoDict: 'BOSS', garrisonDataDict: '干员特质', bandDataListDict: '赛段',
+  stageDatasDict: '关卡数据', shopLevelDisplayDataDict: '商店等级显示',
+  specialEnemyInfoDict: '特殊敌人', shopCharChessInfoData: '棋子商店信息',
+}
+
+function FsSyncBadge({ status, progress }: { status: 'synced' | 'saving' | 'unsaved' | undefined; progress?: SaveProgress | null }) {
   if (!status) return null
+  if (status === 'saving' && progress && progress.total > 0) {
+    const pct = Math.round((progress.current / progress.total) * 100)
+    const fieldsLabel = progress.changedFields
+      .map(f => fieldLabelMap[f] || f)
+      .join('、')
+    return (
+      <Tooltip label={`${progress.current}/${progress.total} 文件 | 变动: ${fieldsLabel}`} withArrow>
+        <Group gap={4} wrap="nowrap" style={{ minWidth: 80 }}>
+          <Progress value={pct} size="xs" color="yellow" style={{ flex: 1 }} />
+          <Text size="xs" c="yellow" style={{ whiteSpace: 'nowrap' }}>{pct}%</Text>
+        </Group>
+      </Tooltip>
+    )
+  }
   const cfg = {
     synced: { color: 'teal', label: '已同步' },
     saving: { color: 'yellow', label: '保存中…' },
@@ -75,7 +102,7 @@ function PermissionBadge({ role }: { role: string | null }) {
 export function SeasonTabs({ store, currentUserId }: Props) {
   const {
     seasons, serverSeasons, serverTemplates, activeSeasonId, setActiveSeasonId,
-    addSeason, removeSeason, renameSeason, markClean,
+    addLocalSeason, uploadSeason, removeSeason, renameSeason, markClean,
     updateSeason, setSeasonFsHandle, setSeasonFsState, setSeasonFsSyncStatus,
     loadSeason, unloadSeason, refreshSeasonList, refreshTemplateList, loading,
     forkTemplate,
@@ -86,6 +113,15 @@ export function SeasonTabs({ store, currentUserId }: Props) {
   const [importLabel, setImportLabel] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null)
+
+  // Directory conflict modal
+  const [dirConflict, setDirConflict] = useState<{
+    seasonId: string
+    handle: FileSystemDirectoryHandle
+    diffFields: string[]  // top-level fields that differ
+    dirHasData: boolean
+  } | null>(null)
 
   // Share modal
   const [shareSeasonId, setShareSeasonId] = useState<string | null>(null)
@@ -106,6 +142,7 @@ export function SeasonTabs({ store, currentUserId }: Props) {
   const fsTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const savingRef = useRef<Record<string, boolean>>({})
   const lastOwnWriteRef = useRef<Record<string, number>>({})
+  const [fsProgress, setFsProgress] = useState<Record<string, SaveProgress | null>>({})
 
   useEffect(() => { seasonsRef.current = seasons })
 
@@ -119,17 +156,21 @@ export function SeasonTabs({ store, currentUserId }: Props) {
         if (!latest?.fsHandle || !latest.isDirty) return
         savingRef.current[s.id] = true
         setSeasonFsSyncStatus(s.id, 'saving')
+        setFsProgress(prev => ({ ...prev, [s.id]: { current: 0, total: 0, changedFields: [] } }))
         try {
           const sid = s.id
           const savedAt = await saveToDirectory(latest.fsHandle, latest.data, latest.label, () => {
             lastOwnWriteRef.current[sid] = Date.now()
-          })
+          }, (p) => {
+            setFsProgress(prev => ({ ...prev, [sid]: p }))
+          }, latest.lastSavedData)
           lastOwnWriteRef.current[sid] = Date.now()
           setSeasonFsState(s.id, savedAt, 'synced')
         } catch {
           setSeasonFsSyncStatus(s.id, 'unsaved')
         } finally {
           savingRef.current[s.id] = false
+          setFsProgress(prev => ({ ...prev, [s.id]: null }))
         }
       }, 600)
     })
@@ -274,7 +315,7 @@ export function SeasonTabs({ store, currentUserId }: Props) {
       if (!data.modeDataDict || !data.bondInfoDict || !data.charShopChessDatas) {
         throw new Error('数据结构不完整，请确认是 AutoChessSeasonData 格式')
       }
-      await addSeason(importLabel || `赛季 ${seasons.length + 1}`, data)
+      addLocalSeason(importLabel || `赛季 ${seasons.length + 1}`, data)
       closeImport()
       setJsonText('')
       notifications.show({
@@ -301,12 +342,15 @@ export function SeasonTabs({ store, currentUserId }: Props) {
       const handle = await openDirectory()
       if (!handle) return
       try {
-        const { data, meta } = await loadFromDirectory(handle)
-        const id = await addSeason(meta.label || handle.name, data)
+        setLoadProgress({ current: 0, total: 0, field: '' })
+        const { data, meta } = await loadFromDirectory(handle, p => setLoadProgress(p))
+        setLoadProgress(null)
+        const id = addLocalSeason(meta.label || handle.name, data)
         setSeasonFsHandle(id, handle)
         setSeasonFsState(id, 0, 'synced')
         notifications.show({ title: '目录加载成功', message: `已从「${handle.name}」加载`, color: 'teal', icon: <IconFolderCheck size={16} /> })
       } catch {
+        setLoadProgress(null)
         notifications.show({
           title: '空目录或未初始化',
           message: '目录中没有 project.json。请先导入 JSON 数据，然后用菜单「另存为目录」初始化',
@@ -324,34 +368,134 @@ export function SeasonTabs({ store, currentUserId }: Props) {
     try {
       const handle = await openDirectory()
       if (!handle) return
-      setSeasonFsSyncStatus(id, 'saving')
+
+      // Check if directory has existing data
+      let dirData: AutoChessSeasonData | null = null
+      try {
+        setLoadProgress({ current: 0, total: 0, field: '' })
+        const result = await loadFromDirectory(handle, p => setLoadProgress(p))
+        dirData = result.data
+      } catch {
+        // No project.json = empty directory, safe to write directly
+      }
+      setLoadProgress(null)
+
+      if (dirData) {
+        // Compare to find differences
+        const diffFields: string[] = []
+        const allKeys = new Set([
+          ...Object.keys(season.data),
+          ...Object.keys(dirData),
+        ])
+        for (const key of allKeys) {
+          const editorVal = (season.data as unknown as Record<string, unknown>)[key]
+          const dirVal = (dirData as unknown as Record<string, unknown>)[key]
+          if (JSON.stringify(deepSortValue(editorVal)) !== JSON.stringify(deepSortValue(dirVal))) {
+            diffFields.push(key)
+          }
+        }
+
+        if (diffFields.length > 0) {
+          // Show conflict modal
+          setDirConflict({ seasonId: id, handle, diffFields, dirHasData: true })
+          return
+        }
+      }
+
+      // No conflict or empty dir — just bind and save
+      await doSaveToDirectory(id, handle)
+    } catch (e) {
+      setLoadProgress(null)
+      notifications.show({ title: '操作失败', message: String(e), color: 'red' })
+    }
+  }
+
+  async function doSaveToDirectory(id: string, handle: FileSystemDirectoryHandle) {
+    const season = seasonsRef.current.find(s => s.id === id)
+    if (!season) return
+    // Disconnect old watcher if rebinding
+    if (watchCancels.current[id]) {
+      watchCancels.current[id]()
+      delete watchCancels.current[id]
+      watchedIds.current.delete(id)
+    }
+    setLoadProgress({ current: 0, total: 0, field: '' })
+    try {
       const savedAt = await saveToDirectory(handle, season.data, season.label, () => {
         lastOwnWriteRef.current[id] = Date.now()
+      }, (p) => {
+        setLoadProgress({ current: p.current, total: p.total, field: p.changedFields.join(', ') })
       })
       lastOwnWriteRef.current[id] = Date.now()
       setSeasonFsHandle(id, handle)
       setSeasonFsState(id, savedAt, 'synced')
-      notifications.show({ title: '另存成功', message: `已保存到目录「${handle.name}」`, color: 'teal', icon: <IconFolderCheck size={16} /> })
+      notifications.show({ title: '保存成功', message: `已保存到目录「${handle.name}」`, color: 'teal', icon: <IconFolderCheck size={16} /> })
     } catch (e) {
       notifications.show({ title: '保存失败', message: String(e), color: 'red' })
-      setSeasonFsSyncStatus(id, 'unsaved')
+    } finally {
+      setLoadProgress(null)
     }
   }
 
+  async function handleConflictLoadDir() {
+    if (!dirConflict) return
+    const { seasonId, handle } = dirConflict
+    setDirConflict(null)
+    // Disconnect old watcher
+    if (watchCancels.current[seasonId]) {
+      watchCancels.current[seasonId]()
+      delete watchCancels.current[seasonId]
+      watchedIds.current.delete(seasonId)
+    }
+    try {
+      setLoadProgress({ current: 0, total: 0, field: '' })
+      const { data } = await loadFromDirectory(handle, p => setLoadProgress(p))
+      setLoadProgress(null)
+      updateSeason(seasonId, () => data)
+      setSeasonFsHandle(seasonId, handle)
+      setSeasonFsState(seasonId, 0, 'synced')
+      markClean(seasonId)
+      notifications.show({ title: '已加载目录数据', message: `已从「${handle.name}」加载`, color: 'teal' })
+    } catch (e) {
+      setLoadProgress(null)
+      notifications.show({ title: '加载失败', message: String(e), color: 'red' })
+    }
+  }
+
+  async function handleConflictOverwrite() {
+    if (!dirConflict) return
+    const { seasonId, handle } = dirConflict
+    setDirConflict(null)
+    await doSaveToDirectory(seasonId, handle)
+  }
+
   async function handleManualSave(id: string) {
+    if (savingRef.current[id]) {
+      notifications.show({ message: '正在保存中，请等待当前保存完成', color: 'yellow' })
+      return
+    }
     const season = seasonsRef.current.find(s => s.id === id)
     if (!season?.fsHandle) return
+    // Cancel pending auto-save timer
+    if (fsTimers.current[id]) { clearTimeout(fsTimers.current[id]); delete fsTimers.current[id] }
+    savingRef.current[id] = true
     setSeasonFsSyncStatus(id, 'saving')
+    setFsProgress(prev => ({ ...prev, [id]: { current: 0, total: 0, changedFields: [] } }))
     try {
       const savedAt = await saveToDirectory(season.fsHandle, season.data, season.label, () => {
         lastOwnWriteRef.current[id] = Date.now()
-      })
+      }, (p) => {
+        setFsProgress(prev => ({ ...prev, [id]: p }))
+      }, season.lastSavedData)
       lastOwnWriteRef.current[id] = Date.now()
       setSeasonFsState(id, savedAt, 'synced')
       notifications.show({ title: '保存成功', message: '已同步到目录', color: 'teal' })
     } catch (e) {
       notifications.show({ title: '保存失败', message: String(e), color: 'red' })
       setSeasonFsSyncStatus(id, 'unsaved')
+    } finally {
+      savingRef.current[id] = false
+      setFsProgress(prev => ({ ...prev, [id]: null }))
     }
   }
 
@@ -417,8 +561,9 @@ export function SeasonTabs({ store, currentUserId }: Props) {
                     </Tooltip>
                   ) : null}
                   <Text size="sm" fw={activeSeasonId === s.id ? 600 : 400}>{s.label}</Text>
+                  {s.isLocal && <Badge size="xs" variant="outline" color="gray">本地</Badge>}
                   {s.isDirty && !s.fsHandle && <Badge size="xs" color="yellow" circle>●</Badge>}
-                  {s.fsHandle && <FsSyncBadge status={s.fsSyncStatus} />}
+                  {s.fsHandle && <FsSyncBadge status={s.fsSyncStatus} progress={fsProgress[s.id]} />}
                   <Menu withinPortal shadow="md" position="bottom-end">
                     <Menu.Target>
                       <ActionIcon size="xs" variant="transparent" onClick={e => e.stopPropagation()}>
@@ -426,17 +571,21 @@ export function SeasonTabs({ store, currentUserId }: Props) {
                       </ActionIcon>
                     </Menu.Target>
                     <Menu.Dropdown>
-                      {s.isOwner && (
+                      {(s.isOwner || s.isLocal) && (
                         <Menu.Item leftSection={<IconEdit size={14} />} onClick={e => { e.stopPropagation(); startRename(s.id, s.label) }}>重命名</Menu.Item>
                       )}
                       <Menu.Item leftSection={<IconDownload size={14} />} onClick={e => { e.stopPropagation(); handleExport(s.id) }}>导出 JSON</Menu.Item>
-                      {s.isOwner && (
+                      {s.isLocal && (
+                        <Menu.Item leftSection={<IconUpload size={14} />} color="teal" onClick={e => { e.stopPropagation(); void uploadSeason(s.id).then(() => notifications.show({ title: '上传成功', message: '赛季已上传到服务器', color: 'teal' })) }}>上传到服务器</Menu.Item>
+                      )}
+                      {s.isOwner && !s.isLocal && (
                         <Menu.Item leftSection={<IconShare size={14} />} onClick={e => { e.stopPropagation(); void openShareModal(s.id) }}>分享管理</Menu.Item>
                       )}
                       <Menu.Divider />
                       {s.fsHandle ? (
                         <>
                           <Menu.Item leftSection={<IconRefresh size={14} />} onClick={e => { e.stopPropagation(); void handleManualSave(s.id) }}>立即保存到目录</Menu.Item>
+                          <Menu.Item leftSection={<IconFolderOpen size={14} />} onClick={e => { e.stopPropagation(); void handleSaveAsDirectory(s.id) }}>更换目录...</Menu.Item>
                           <Menu.Item leftSection={<IconFolderOff size={14} />} onClick={e => { e.stopPropagation(); handleDisconnectFs(s.id) }}>断开目录</Menu.Item>
                         </>
                       ) : s.fsHandleName ? (
@@ -444,10 +593,12 @@ export function SeasonTabs({ store, currentUserId }: Props) {
                       ) : (
                         <Menu.Item leftSection={<IconFolderOpen size={14} />} onClick={e => { e.stopPropagation(); void handleSaveAsDirectory(s.id) }}>另存为目录...</Menu.Item>
                       )}
-                      <Menu.Item leftSection={<IconCopy size={14} />} onClick={e => { e.stopPropagation(); void api.duplicateSeason(s.id).then(() => refreshSeasonList()) }}>复制赛季</Menu.Item>
+                      {!s.isLocal && (
+                        <Menu.Item leftSection={<IconCopy size={14} />} onClick={e => { e.stopPropagation(); void api.duplicateSeason(s.id).then(() => refreshSeasonList()) }}>复制赛季</Menu.Item>
+                      )}
                       <Menu.Divider />
                       <Menu.Item leftSection={<IconTrash size={14} />} onClick={e => { e.stopPropagation(); unloadSeason(s.id) }}>关闭标签</Menu.Item>
-                      {s.isOwner && (
+                      {s.isOwner && !s.isLocal && (
                         <Menu.Item leftSection={<IconTrash size={14} />} color="red" onClick={e => { e.stopPropagation(); removeSeason(s.id) }}>从服务器删除</Menu.Item>
                       )}
                     </Menu.Dropdown>
@@ -663,6 +814,41 @@ export function SeasonTabs({ store, currentUserId }: Props) {
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      {/* 加载目录进度 */}
+      <Modal opened={!!loadProgress} onClose={() => {}} withCloseButton={false} closeOnClickOutside={false} closeOnEscape={false} size="sm" centered>
+        <Stack gap="sm" align="center" py="md">
+          <Loader size="sm" />
+          <Text size="sm" fw={500}>正在处理目录…</Text>
+          {loadProgress && loadProgress.total > 0 && (
+            <>
+              <Progress value={Math.round((loadProgress.current / loadProgress.total) * 100)} size="md" color="teal" style={{ width: '100%' }} />
+              <Text size="xs" c="dimmed">
+                {loadProgress.current}/{loadProgress.total} 文件 · {fieldLabelMap[loadProgress.field] || loadProgress.field}
+              </Text>
+            </>
+          )}
+        </Stack>
+      </Modal>
+
+      {/* 目录数据冲突 */}
+      <Modal opened={!!dirConflict} onClose={() => setDirConflict(null)} title="目录数据不一致" size="md" centered>
+        {dirConflict && (
+          <Stack gap="md">
+            <Text size="sm">目录中已有数据，且与当前编辑器数据存在 <Text span fw={700}>{dirConflict.diffFields.length}</Text> 个字段的差异：</Text>
+            <Stack gap={4}>
+              {dirConflict.diffFields.map(f => (
+                <Badge key={f} variant="light" color="orange" size="sm">{fieldLabelMap[f] || f}</Badge>
+              ))}
+            </Stack>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="subtle" onClick={() => setDirConflict(null)}>取消</Button>
+              <Button color="blue" onClick={() => void handleConflictLoadDir()}>加载目录数据</Button>
+              <Button color="orange" onClick={() => void handleConflictOverwrite()}>覆盖目录</Button>
+            </Group>
+          </Stack>
+        )}
       </Modal>
     </>
   )

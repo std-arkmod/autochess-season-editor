@@ -22,6 +22,8 @@ export interface SeasonSlot {
   readOnly?: boolean
   /** Whether the current user is the owner of this season */
   isOwner?: boolean
+  /** Local-only season (not synced to server) */
+  isLocal?: boolean
 }
 
 export type ActiveModule =
@@ -192,6 +194,52 @@ export function useDataStore() {
     }
   }, [refreshSeasonList])
 
+  /** Add a local-only season (no server sync) */
+  const addLocalSeason = useCallback((label: string, data: AutoChessSeasonData) => {
+    const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const normalized = normalizeSeasonDataForRuntime(data)
+    const slot: SeasonSlot = {
+      id,
+      label,
+      data: normalized,
+      isDirty: false,
+      version: 0,
+      isLocal: true,
+      lastSavedData: normalized,
+    }
+    setSeasons(prev => [...prev, slot])
+    setActiveSeasonId(id)
+    return id
+  }, [])
+
+  /** Upload a local season to server, detach local FS */
+  const uploadSeason = useCallback(async (id: string) => {
+    const season = seasons.find(s => s.id === id)
+    if (!season || !season.isLocal) return
+    try {
+      const res = await api.createSeason(season.label, season.data)
+      setSeasons(prev => prev.map(s => s.id === id ? {
+        ...s,
+        id: res.season.id,
+        version: res.season.version,
+        isDirty: false,
+        isLocal: false,
+        isOwner: true,
+        lastSavedData: s.data,
+        fsHandle: undefined,
+        fsHandleName: undefined,
+        fsSavedAt: undefined,
+        fsSyncStatus: undefined,
+      } : s))
+      setActiveSeasonId(res.season.id)
+      refreshSeasonList()
+      return res.season.id
+    } catch (err) {
+      console.error('Failed to upload season:', err)
+      throw err
+    }
+  }, [seasons, refreshSeasonList])
+
   const updateSeason = useCallback((id: string, updater: (data: AutoChessSeasonData) => AutoChessSeasonData) => {
     setSeasons(prev =>
       prev.map(s => s.id === id ? { ...s, data: updater(s.data), isDirty: true } : s)
@@ -230,7 +278,7 @@ export function useDataStore() {
   // Auto-save to server when dirty (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    const dirty = seasons.filter(s => s.isDirty && !s.readOnly)
+    const dirty = seasons.filter(s => s.isDirty && !s.readOnly && !s.isLocal)
     if (dirty.length === 0) return
 
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -310,7 +358,7 @@ export function useDataStore() {
 
   const setSeasonFsState = useCallback((id: string, savedAt: number, status: SeasonSlot['fsSyncStatus']) => {
     setSeasons(prev => prev.map(s => s.id === id
-      ? { ...s, fsSavedAt: savedAt, fsSyncStatus: status, isDirty: status === 'synced' ? false : s.isDirty }
+      ? { ...s, fsSavedAt: savedAt, fsSyncStatus: status, isDirty: status === 'synced' ? false : s.isDirty, lastSavedData: status === 'synced' ? s.data : s.lastSavedData }
       : s
     ))
   }, [])
@@ -406,6 +454,8 @@ export function useDataStore() {
     setFocusId,
     navigateTo,
     addSeason,
+    addLocalSeason,
+    uploadSeason,
     updateSeason,
     removeSeason,
     renameSeason,

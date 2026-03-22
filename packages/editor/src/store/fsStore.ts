@@ -27,6 +27,7 @@ import {
   normalizeIdentifierDictForDirectory,
   normalizeSeasonDataForDirectory,
   normalizeSeasonDataForRuntime,
+  deepSortValue,
 } from '@autochess-editor/shared'
 
 /** 所有以独立文件存储的 dict 字段名 */
@@ -137,48 +138,66 @@ export async function openDirectory(): Promise<FileSystemDirectoryHandle | null>
   }
 }
 
+export interface LoadProgress {
+  current: number
+  total: number
+  /** 当前正在加载的字段 */
+  field: string
+}
+
 export async function loadFromDirectory(
-  dir: FileSystemDirectoryHandle
+  dir: FileSystemDirectoryHandle,
+  onProgress?: (progress: LoadProgress) => void,
 ): Promise<{ data: AutoChessSeasonData; meta: ProjectMeta }> {
   const meta = await readJsonFile<ProjectMeta>(dir, 'project.json')
   if (!meta) throw new Error('目录中不存在 project.json，请先保存一次或选择正确的目录')
 
-  const data: Partial<AutoChessSeasonData> = { ...meta.constFields }
+  // First pass: count total files
+  let total = 0
+  const dirKeys: Record<string, string[]> = {}
   for (const field of DICT_FIELDS) {
     try {
       const subDir = await dir.getDirectoryHandle(field as string)
       const keys = await listJsonKeys(subDir)
+      dirKeys[field as string] = keys
+      total += keys.length
+    } catch {
+      dirKeys[field as string] = []
+    }
+  }
+
+  let current = 0
+  const data: Partial<AutoChessSeasonData> = { ...meta.constFields }
+  for (const field of DICT_FIELDS) {
+    const keys = dirKeys[field as string]
+    if (keys.length === 0) {
+      ;(data as unknown as Record<string, unknown>)[field] = {}
+      continue
+    }
+    try {
+      const subDir = await dir.getDirectoryHandle(field as string)
       const dict: Record<string, unknown> = {}
       for (const key of keys) {
         const value = await readJsonFile(subDir, `${key}.json`)
         if (value !== null) dict[key] = value
+        current++
+        onProgress?.({ current, total, field: field as string })
       }
       ;(data as unknown as Record<string, unknown>)[field] = dict
-
-      if (field === 'bondInfoDict' || field === 'charChessDataDict' || field === 'trapChessDataDict') {
-        const cleanedDict = normalizeIdentifierDictForDirectory(dict as Record<string, Record<string, unknown>>)
-        for (const [key, value] of Object.entries(cleanedDict)) {
-          await writeJsonFileIfChanged(subDir, `${key}.json`, value)
-        }
-      }
     } catch {
       ;(data as unknown as Record<string, unknown>)[field] = {}
     }
   }
 
   const runtimeData = normalizeSeasonDataForRuntime(data as AutoChessSeasonData)
-  const cleanedData = normalizeSeasonDataForDirectory(runtimeData)
-
-  try {
-    const charChessDir = await dir.getDirectoryHandle('charChessDataDict')
-    for (const [key, value] of Object.entries(cleanedData.charChessDataDict)) {
-      await writeJsonFileIfChanged(charChessDir, `${key}.json`, value)
-    }
-  } catch {
-    // ignore missing dir
-  }
-
   return { data: runtimeData, meta }
+}
+
+export interface SaveProgress {
+  current: number
+  total: number
+  /** 变动的顶层字段名列表 */
+  changedFields: string[]
 }
 
 export async function saveToDirectory(
@@ -186,9 +205,14 @@ export async function saveToDirectory(
   data: AutoChessSeasonData,
   label: string,
   /** 第一个文件实际写入前调用，用于提前更新 lastOwnWrite，避免 watchDirectory 误判 */
-  onFirstWrite?: () => void
+  onFirstWrite?: () => void,
+  /** 进度回调 */
+  onProgress?: (progress: SaveProgress) => void,
+  /** 上次保存的数据，用于增量保存（只写变化的字段） */
+  lastSavedData?: AutoChessSeasonData,
 ): Promise<number> {
   const normalizedData = normalizeSeasonDataForDirectory(data)
+  const normalizedBase = lastSavedData ? normalizeSeasonDataForDirectory(lastSavedData) : null
   let firstWriteCalled = false
   const notifyFirst = () => {
     if (!firstWriteCalled) {
@@ -197,15 +221,74 @@ export async function saveToDirectory(
     }
   }
 
-  const constFields: Partial<AutoChessSeasonData> = {}
-  for (const field of CONST_FIELDS) {
-    ;(constFields as unknown as Record<string, unknown>)[field] =
-      (normalizedData as unknown as Record<string, unknown>)[field]
+  // Determine which top-level fields actually changed
+  const changedDictFields = new Set<keyof AutoChessSeasonData>()
+  let constFieldsChanged = false
+  if (normalizedBase) {
+    for (const field of CONST_FIELDS) {
+      const newVal = (normalizedData as unknown as Record<string, unknown>)[field]
+      const oldVal = (normalizedBase as unknown as Record<string, unknown>)[field]
+      if (JSON.stringify(deepSortValue(newVal)) !== JSON.stringify(deepSortValue(oldVal))) {
+        constFieldsChanged = true
+        break
+      }
+    }
+    for (const field of DICT_FIELDS) {
+      const newVal = (normalizedData as unknown as Record<string, unknown>)[field]
+      const oldVal = (normalizedBase as unknown as Record<string, unknown>)[field]
+      if (JSON.stringify(deepSortValue(newVal)) !== JSON.stringify(deepSortValue(oldVal))) {
+        changedDictFields.add(field)
+      }
+    }
+  } else {
+    // No base data = first save, write everything
+    constFieldsChanged = true
+    for (const field of DICT_FIELDS) changedDictFields.add(field)
   }
-  const projectChanged = await writeJsonFileIfChanged(dir, 'project.json', { label, version: 1, constFields })
-  if (projectChanged) notifyFirst()
 
-  for (const field of DICT_FIELDS) {
+  // Build changed fields list for display
+  const changedFields: string[] = []
+  if (constFieldsChanged) changedFields.push('project.json')
+  for (const field of changedDictFields) changedFields.push(field as string)
+
+  // Count total files for progress (only changed fields)
+  let total = constFieldsChanged ? 1 : 0
+  for (const field of changedDictFields) {
+    const dict = (normalizedData as unknown as Record<string, unknown>)[field] as Record<string, unknown> | null
+    if (dict) total += Object.keys(dict).length
+  }
+
+  if (total === 0) {
+    // Label may have changed even if data hasn't
+    const projectChanged = await writeJsonFileIfChanged(dir, 'project.json', {
+      label, version: 1,
+      constFields: (() => {
+        const cf: Partial<AutoChessSeasonData> = {}
+        for (const field of CONST_FIELDS) {
+          ;(cf as unknown as Record<string, unknown>)[field] = (normalizedData as unknown as Record<string, unknown>)[field]
+        }
+        return cf
+      })(),
+    })
+    if (projectChanged) onFirstWrite?.()
+    return Date.now()
+  }
+
+  let current = 0
+
+  if (constFieldsChanged) {
+    const constFields: Partial<AutoChessSeasonData> = {}
+    for (const field of CONST_FIELDS) {
+      ;(constFields as unknown as Record<string, unknown>)[field] =
+        (normalizedData as unknown as Record<string, unknown>)[field]
+    }
+    const projectChanged = await writeJsonFileIfChanged(dir, 'project.json', { label, version: 1, constFields })
+    if (projectChanged) notifyFirst()
+    current++
+    onProgress?.({ current, total, changedFields })
+  }
+
+  for (const field of changedDictFields) {
     const dict = (normalizedData as unknown as Record<string, unknown>)[field] as Record<string, unknown> | null
     if (!dict) continue
     const subDir = await getOrCreateDir(dir, field as string)
@@ -214,6 +297,8 @@ export async function saveToDirectory(
     for (const [key, value] of Object.entries(dict)) {
       const changed = await writeJsonFileIfChanged(subDir, `${key}.json`, value)
       if (changed) notifyFirst()
+      current++
+      onProgress?.({ current, total, changedFields })
     }
 
     // 删除 dict 中已不存在的文件
