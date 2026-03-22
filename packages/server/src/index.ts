@@ -25,11 +25,14 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
 const port = parseInt(process.env.PORT ?? '3001', 10)
 
+const hostname = process.env.HOST ?? '0.0.0.0'
+
 const server = serve({
   fetch: app.fetch,
   port,
+  hostname,
 }, (info) => {
-  console.log(`Server running on http://localhost:${info.port}`)
+  console.log(`Server running on http://${hostname}:${info.port}`)
 })
 
 // Attach WebSocket server for Yjs sync
