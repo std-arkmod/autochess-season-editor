@@ -28,7 +28,6 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       'Content-Type': 'application/json',
       ...headers,
     },
-    credentials: 'include',
     body: body ? JSON.stringify(body) : undefined,
   })
 

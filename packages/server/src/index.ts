@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import type { Server } from 'http'
 import authRoutes from './routes/auth.ts'
@@ -7,6 +8,11 @@ import userRoutes from './routes/users.ts'
 import { setupWebSocketServer } from './yjs/server.ts'
 
 const app = new Hono()
+
+// CORS
+app.use('*', cors({
+  origin: '*',
+}))
 
 // Routes
 app.route('/api/auth', authRoutes)
