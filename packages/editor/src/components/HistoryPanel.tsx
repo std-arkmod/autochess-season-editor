@@ -35,6 +35,8 @@ const moduleIcons: Record<ActiveModule, React.ReactNode> = {
   rewards: <IconGift size={14} />,
   diff: <IconLayersDifference size={14} />,
   misc: <IconStack size={14} />,
+  scripts: <IconStack size={14} />,
+  buffs: <IconStack size={14} />,
   admin: <IconUserCog size={14} />,
 }
 
@@ -51,6 +53,8 @@ const moduleNames: Record<ActiveModule, string> = {
   rewards: '奖励',
   diff: '数据对比',
   misc: '其他',
+  scripts: '脚本',
+  buffs: 'Buff模板',
   admin: '用户管理',
 }
 

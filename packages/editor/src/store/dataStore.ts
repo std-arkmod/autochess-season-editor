@@ -38,6 +38,8 @@ export type ActiveModule =
   | 'garrison'
   | 'rewards'
   | 'misc'
+  | 'scripts'
+  | 'buffs'
   | 'diff'
   | 'admin'
 
