@@ -19,7 +19,6 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
   const hasBranches = actionNode._succeedNodes != null || actionNode._failNodes != null
   const hasCondition = actionNode._conditionNode != null
   const hasMultiCondition = Array.isArray(actionNode._conditionsNode) && actionNode._conditionsNode.length > 0
-  const needsConditionInput = hasCondition || hasMultiCondition
 
   const { setNodes } = useReactFlow()
 
@@ -34,31 +33,35 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
     }))
   }, [id, setNodes])
 
-  // Right-side output handles
-  const rightHandles: { id: string; label: string; color: string }[] = []
-  if (!isConditionNode) {
-    rightHandles.push({ id: 'next', label: 'Exec ▶', color: '#ccc' })
+  // Build left-side pins (inputs)
+  const leftPins: { id: string; label: string; color: string; type: 'target' }[] = []
+  if (!isEvent && !isConditionNode) {
+    leftPins.push({ id: 'in', label: '▶ Exec', color: '#ccc', type: 'target' })
   }
-  if (hasBranches) {
-    rightHandles.push({ id: 'true', label: 'True ▶', color: '#2ecc71' })
-    rightHandles.push({ id: 'false', label: 'False ▶', color: '#e74c3c' })
-  }
-  // Condition nodes output a boolean result
-  if (isConditionNode) {
-    rightHandles.push({ id: 'bool_out', label: 'Result ▶', color: '#f39c12' })
-  }
-
-  // Left-side input handles (condition inputs for IfElse/IfConditions)
-  const conditionInputs: { id: string; label: string; color: string }[] = []
   if (hasCondition) {
-    conditionInputs.push({ id: 'condition', label: '● 条件', color: '#f39c12' })
+    leftPins.push({ id: 'condition', label: '● 条件', color: '#f39c12', type: 'target' })
   }
   if (hasMultiCondition) {
     const conditions = actionNode._conditionsNode as unknown[]
     conditions.forEach((_, i) => {
-      conditionInputs.push({ id: `condition_${i}`, label: `● 条件${i + 1}`, color: '#f39c12' })
+      leftPins.push({ id: `condition_${i}`, label: `● 条件${i + 1}`, color: '#f39c12', type: 'target' })
     })
   }
+
+  // Build right-side pins (outputs)
+  const rightPins: { id: string; label: string; color: string; type: 'source' }[] = []
+  if (!isConditionNode) {
+    rightPins.push({ id: 'next', label: 'Exec ▶', color: '#ccc', type: 'source' })
+  }
+  if (hasBranches) {
+    rightPins.push({ id: 'true', label: 'True ▶', color: '#2ecc71', type: 'source' })
+    rightPins.push({ id: 'false', label: 'False ▶', color: '#e74c3c', type: 'source' })
+  }
+  if (isConditionNode) {
+    rightPins.push({ id: 'bool_out', label: 'Result ▶', color: '#f39c12', type: 'source' })
+  }
+
+  const pinRowCount = Math.max(leftPins.length, rightPins.length)
 
   return (
     <div style={{
@@ -88,29 +91,73 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
         <span style={{ fontSize: 9, opacity: 0.6 }}>{schema.category}</span>
       </div>
 
-      {/* Pin labels row */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: '3px 10px',
-        fontSize: 9,
-        color: '#888',
-        borderBottom: properties.length > 0 ? '1px solid #333' : undefined,
-      }}>
-        {/* Left: exec in + condition inputs */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {!isEvent && !isConditionNode && <span style={{ color: '#ccc' }}>▶ Exec</span>}
-          {conditionInputs.map(h => (
-            <span key={h.id} style={{ color: h.color }}>{h.label}</span>
-          ))}
+      {/* Pin rows — each row has a left pin and a right pin, handles are inline */}
+      {pinRowCount > 0 && (
+        <div style={{
+          borderBottom: properties.length > 0 ? '1px solid #333' : undefined,
+        }}>
+          {Array.from({ length: pinRowCount }).map((_, i) => {
+            const left = leftPins[i]
+            const right = rightPins[i]
+            return (
+              <div key={i} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '3px 10px',
+                fontSize: 9,
+                position: 'relative',
+                minHeight: 18,
+              }}>
+                {/* Left pin */}
+                <div style={{ position: 'relative', color: left?.color ?? 'transparent' }}>
+                  {left && (
+                    <>
+                      <span>{left.label}</span>
+                      <Handle
+                        type={left.type}
+                        position={Position.Left}
+                        id={left.id}
+                        style={{
+                          background: left.color,
+                          width: 10, height: 10,
+                          borderRadius: left.id === 'in' ? 2 : '50%',
+                          position: 'absolute',
+                          left: -18,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+                {/* Right pin */}
+                <div style={{ position: 'relative', color: right?.color ?? 'transparent' }}>
+                  {right && (
+                    <>
+                      <span>{right.label}</span>
+                      <Handle
+                        type={right.type}
+                        position={Position.Right}
+                        id={right.id}
+                        style={{
+                          background: right.color,
+                          width: 10, height: 10,
+                          borderRadius: 2,
+                          position: 'absolute',
+                          right: -18,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
-        {/* Right: exec out + branch out + bool out */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-          {rightHandles.map(h => (
-            <span key={h.id} style={{ color: h.color }}>{h.label}</span>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Properties — inline editing */}
       {properties.length > 0 && (
@@ -126,52 +173,6 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
           ))}
         </div>
       )}
-
-      {/* ── Handles ── */}
-
-      {/* Exec In — left side (not for event triggers or condition-check nodes) */}
-      {!isEvent && !isConditionNode && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="in"
-          style={{ background: '#ccc', top: 38, width: 10, height: 10, borderRadius: 2 }}
-        />
-      )}
-
-      {/* Condition inputs — left side below exec in (these are TARGET handles) */}
-      {conditionInputs.map((h, i) => (
-        <Handle
-          key={h.id}
-          type="target"
-          position={Position.Left}
-          id={h.id}
-          style={{
-            background: h.color,
-            top: 38 + ((!isEvent ? 1 : 0) + i) * 14,
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-          }}
-        />
-      ))}
-
-      {/* Right side outputs: next, true, false, bool_out */}
-      {rightHandles.map((h, i) => (
-        <Handle
-          key={h.id}
-          type="source"
-          position={Position.Right}
-          id={h.id}
-          style={{
-            background: h.color,
-            top: 38 + i * 14,
-            width: 10,
-            height: 10,
-            borderRadius: 2,
-          }}
-        />
-      ))}
     </div>
   )
 }
