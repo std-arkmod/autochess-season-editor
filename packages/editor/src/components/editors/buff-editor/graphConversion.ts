@@ -2,6 +2,7 @@ import type { Node, Edge } from '@xyflow/react'
 import type { BuffTemplate, ActionNode } from '@autochess-editor/shared'
 import { getSchema } from './nodeSchema'
 import { eventLabels } from './buffEditorI18n'
+import { TREE_KEYS } from './constants'
 
 export interface FlowNodeData extends Record<string, unknown> {
   label: string
@@ -11,6 +12,8 @@ export interface FlowNodeData extends Record<string, unknown> {
   eventType?: string
   actionNode?: ActionNode
   isEventTrigger?: boolean
+  /** Explicitly flagged as a condition node (set by treeToGraph, edge-check as fallback) */
+  isCondition?: boolean
   treePath: string
 }
 
@@ -19,12 +22,6 @@ let nodeIdCounter = 0
 function nextId(prefix: string): string {
   return `${prefix}_${nodeIdCounter++}`
 }
-
-/** Known special keys that are part of the tree structure, not node properties */
-const TREE_KEYS = new Set([
-  '$type', '_conditionNode', '_succeedNodes', '_failNodes',
-  '_conditionsNode', '_isAnd',
-])
 
 /** Extract user-facing properties from an ActionNode (excluding tree structure keys) */
 export function getNodeProperties(node: ActionNode): Record<string, unknown> {
@@ -48,7 +45,6 @@ export function treeToGraph(template: BuffTemplate): { nodes: Node[]; edges: Edg
   let eventY = 0
   for (const eventType of eventTypes) {
     const actions = template.eventToActions[eventType]
-    if (!actions || actions.length === 0) continue
 
     const triggerId = nextId('trigger')
     nodes.push({
@@ -66,7 +62,7 @@ export function treeToGraph(template: BuffTemplate): { nodes: Node[]; edges: Edg
       } satisfies FlowNodeData,
     })
 
-    const result = walkActions(actions, `${eventType}`, 0)
+    const result = (actions && actions.length > 0) ? walkActions(actions, `${eventType}`, 0) : []
 
     if (result.length > 0) {
       edges.push({
@@ -78,15 +74,13 @@ export function treeToGraph(template: BuffTemplate): { nodes: Node[]; edges: Edg
       })
 
       for (let i = 0; i < result.length - 1; i++) {
-        if (!result[i].isBranching) {
-          edges.push({
-            id: `e_${result[i].id}_${result[i + 1].id}`,
-            source: result[i].id,
-            target: result[i + 1].id,
-            sourceHandle: 'next',
-            type: 'smoothstep',
-          })
-        }
+        edges.push({
+          id: `e_${result[i].id}_${result[i + 1].id}`,
+          source: result[i].id,
+          target: result[i + 1].id,
+          sourceHandle: 'next',
+          type: 'smoothstep',
+        })
       }
 
       nodes.push(...result.flatMap(r => r.nodes))
@@ -133,7 +127,7 @@ function walkActions(actions: ActionNode[], pathPrefix: string, startX: number):
     const hasSingleCondition = typeDef.hasCondition && action._conditionNode != null
     const hasMultiCondition = typeDef.hasMultiCondition && Array.isArray(action._conditionsNode) && action._conditionsNode.length > 0
     const hasBranches = typeDef.hasBranches
-    const isBranching = hasSingleCondition || hasMultiCondition || hasBranches
+    const isBranching = hasBranches
 
     // Determine visual node type
     const flowNodeType = 'blueprint'
@@ -160,6 +154,7 @@ function walkActions(actions: ActionNode[], pathPrefix: string, startX: number):
           category: condDef.category,
           color: '',
           actionNode: condNode,
+          isCondition: true,
           treePath: `${path}.condition`,
         } satisfies FlowNodeData,
       })
@@ -193,6 +188,7 @@ function walkActions(actions: ActionNode[], pathPrefix: string, startX: number):
             category: condDef.category,
             color: '',
             actionNode: condNode,
+            isCondition: true,
             treePath: `${path}.conditions.${ci}`,
           } satisfies FlowNodeData,
         })
@@ -257,15 +253,13 @@ function walkActions(actions: ActionNode[], pathPrefix: string, startX: number):
 /** Connect walk results sequentially (non-branching nodes get 'next' edges) */
 function connectSequential(results: WalkResult[], edges: Edge[]) {
   for (let j = 0; j < results.length - 1; j++) {
-    if (!results[j].isBranching) {
-      edges.push({
-        id: `e_${results[j].id}_${results[j + 1].id}`,
-        source: results[j].id,
-        target: results[j + 1].id,
-        sourceHandle: 'next',
-        type: 'smoothstep',
-      })
-    }
+    edges.push({
+      id: `e_${results[j].id}_${results[j + 1].id}`,
+      source: results[j].id,
+      target: results[j + 1].id,
+      sourceHandle: 'next',
+      type: 'smoothstep',
+    })
   }
 }
 
@@ -308,6 +302,25 @@ export function graphToTree(
     eventToActions[eventType] = reconstructChain(firstNext.target, outEdges, inEdges, nodeMap)
   }
 
+  // Warn about orphaned nodes (not reachable from any trigger)
+  const reachable = new Set<string>()
+  for (const t of triggers) reachable.add(t.id)
+  const queue = [...reachable]
+  while (queue.length > 0) {
+    const nid = queue.pop()!
+    for (const out of (outEdges.get(nid) ?? [])) {
+      if (!reachable.has(out.target)) { reachable.add(out.target); queue.push(out.target) }
+    }
+    for (const inc of (inEdges.get(nid) ?? [])) {
+      if (!reachable.has(inc.source)) { reachable.add(inc.source); queue.push(inc.source) }
+    }
+  }
+  const orphans = nodes.filter(n => !reachable.has(n.id) && n.type === 'blueprint')
+  if (orphans.length > 0) {
+    console.warn(`[graphToTree] ${orphans.length} disconnected node(s) will not be saved:`,
+      orphans.map(n => (n.data as FlowNodeData).nodeType))
+  }
+
   return { eventToActions }
 }
 
@@ -318,9 +331,12 @@ function reconstructChain(
   nodeMap: Map<string, Node>,
 ): ActionNode[] {
   const result: ActionNode[] = []
+  const visited = new Set<string>()
   let currentId: string | null = startId
 
   while (currentId) {
+    if (visited.has(currentId)) break // cycle detection
+    visited.add(currentId)
     const node = nodeMap.get(currentId)
     if (!node || (node.data as FlowNodeData)?.isEventTrigger) break
 
@@ -335,6 +351,12 @@ function reconstructChain(
   return result
 }
 
+/**
+ * Diff-based rebuild: start from a deep clone of the original ActionNode,
+ * then overlay only the parts the graph can change (edited properties and
+ * graph-tree-key children). Preserves key ordering, opaque tree keys,
+ * empty arrays, and null values from the original.
+ */
 function rebuildActionNode(
   node: Node,
   outEdges: Map<string, { target: string; handle: string | null | undefined }[]>,
@@ -343,31 +365,37 @@ function rebuildActionNode(
 ): ActionNode {
   const data = node.data as FlowNodeData
   const original = data.actionNode
-  const result: ActionNode = { $type: data.nodeType }
 
-  // Copy properties from original (excluding tree structure keys)
-  if (original) {
-    for (const [k, v] of Object.entries(original)) {
-      if (!TREE_KEYS.has(k)) {
-        result[k] = v
-      }
-    }
-  }
+  // Start from a deep clone of the original to preserve key order,
+  // opaque tree keys, nested objects, and null/empty sentinel values.
+  // For brand-new nodes (no original), build from scratch.
+  const result: ActionNode = original
+    ? JSON.parse(JSON.stringify(original))
+    : { $type: data.nodeType }
 
+  // Overlay any property edits the user made via InlineField.
+  // The edited actionNode in FlowNodeData already has these changes,
+  // so the deep clone above already includes them.
+  // (handlePropertyEdit writes { ...actionNode, [key]: newValue } into data.actionNode)
+
+  // Now rebuild ONLY the graph-tree-key children from edges:
   const nexts = outEdges.get(node.id) ?? []
   const ins = inEdges.get(node.id) ?? []
 
-  // Rebuild single condition (_conditionNode) — condition nodes connect INTO this node
+  // ── _conditionNode ──
   const condEdge = ins.find(e => e.targetHandle === 'condition')
   if (condEdge) {
     const condNode = nodeMap.get(condEdge.source)
     const condData = condNode?.data as FlowNodeData | undefined
     if (condData?.actionNode) {
-      result._conditionNode = { ...condData.actionNode }
+      result._conditionNode = JSON.parse(JSON.stringify(condData.actionNode))
     }
+  } else if ('_conditionNode' in result) {
+    // Preserve the original value (null) if no edge — don't delete the key
+    result._conditionNode = null
   }
 
-  // Rebuild multiple conditions (_conditionsNode) — condition nodes connect INTO condition_N handles
+  // ── _conditionsNode ──
   const conditionEdges = ins
     .filter(e => e.targetHandle && e.targetHandle.startsWith('condition_'))
     .sort((a, b) => {
@@ -379,23 +407,33 @@ function rebuildActionNode(
     result._conditionsNode = conditionEdges.map(ce => {
       const cn = nodeMap.get(ce.source)
       const cd = cn?.data as FlowNodeData | undefined
-      return cd?.actionNode ? { ...cd.actionNode } : { $type: 'unknown' }
+      return cd?.actionNode ? JSON.parse(JSON.stringify(cd.actionNode)) : { $type: 'unknown' }
     })
-    if (original?._isAnd !== undefined) {
-      result._isAnd = original._isAnd
-    }
+  } else if ('_conditionsNode' in result) {
+    // Preserve original (empty [] or whatever it was)
+    result._conditionsNode = original?._conditionsNode ?? []
   }
 
-  // Rebuild succeed branch
+  // ── _isAnd — always preserve from the (possibly edited) original ──
+  if ('_isAnd' in result || original?._isAnd !== undefined) {
+    result._isAnd = original?._isAnd ?? true
+  }
+
+  // ── _succeedNodes ──
   const trueEdge = nexts.find(e => e.handle === 'true')
   if (trueEdge) {
     result._succeedNodes = reconstructChain(trueEdge.target, outEdges, inEdges, nodeMap)
+  } else if ('_succeedNodes' in result) {
+    // Preserve original null or [] — don't delete the key
+    result._succeedNodes = original?._succeedNodes ?? null
   }
 
-  // Rebuild fail branch
+  // ── _failNodes ──
   const falseEdge = nexts.find(e => e.handle === 'false')
   if (falseEdge) {
     result._failNodes = reconstructChain(falseEdge.target, outEdges, inEdges, nodeMap)
+  } else if ('_failNodes' in result) {
+    result._failNodes = original?._failNodes ?? null
   }
 
   return result

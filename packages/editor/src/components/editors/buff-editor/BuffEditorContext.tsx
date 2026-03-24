@@ -11,6 +11,8 @@ export interface BuffEditorContextValue {
   selectedNodeType: string | null
   labelMode: LabelMode
   isReadOnly: boolean
+  /** Update a property on a node's actionNode (with undo support) */
+  onPropertyEdit: (nodeId: string, key: string, value: unknown) => void
 }
 
 export const BuffEditorContext = createContext<BuffEditorContextValue>({
@@ -21,6 +23,7 @@ export const BuffEditorContext = createContext<BuffEditorContextValue>({
   selectedNodeType: null,
   labelMode: 'cn',
   isReadOnly: false,
+  onPropertyEdit: () => {},
 })
 
 export function useBuffEditor() {

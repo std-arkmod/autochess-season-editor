@@ -30,7 +30,7 @@ let _finalized = false
 // Known template keys for reference fields
 let _allTemplateKeys: Set<string> | null = null
 
-const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
+import { TREE_KEYS } from './constants'
 
 // ── Chinese labels for enum values ──
 

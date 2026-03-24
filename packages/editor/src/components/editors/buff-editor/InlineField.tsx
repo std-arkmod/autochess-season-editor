@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   TextInput, Autocomplete, Switch, Group, Text,
   ActionIcon, Tooltip, Collapse, Stack, Paper,
@@ -124,6 +124,11 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
 }) {
   const { labelMode } = useBuffEditor()
   const enumInfo = getEnumInfo(propKey)
+  // Local text state to prevent type flipping during intermediate input (e.g. typing "-")
+  const [text, setText] = useState(String(value))
+  useEffect(() => { setText(String(value)) }, [value])
+
+  const commit = (v: string) => onChange(smartParse(v))
 
   if (enumInfo) {
     return (
@@ -131,8 +136,10 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
         <Autocomplete
           size="xs"
-          value={String(value)}
-          onChange={v => onChange(smartParse(v))}
+          value={text}
+          onChange={setText}
+          onOptionSubmit={v => { setText(v); commit(v) }}
+          onBlur={() => commit(text)}
           data={enumInfo.values}
           renderOption={AutocompleteRenderOption(enumInfo, labelMode)}
           limit={Infinity}
@@ -148,8 +155,10 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
       <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
       <TextInput
         size="xs"
-        value={String(value)}
-        onChange={e => onChange(smartParse(e.currentTarget.value))}
+        value={text}
+        onChange={e => setText(e.currentTarget.value)}
+        onBlur={() => commit(text)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(text) }}
         style={{ flex: 1 }}
         styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
       />

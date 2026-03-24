@@ -2,13 +2,12 @@ import dagre from 'dagre'
 import type { Node, Edge } from '@xyflow/react'
 import type { FlowNodeData } from './graphConversion'
 import { getSchema } from './nodeSchema'
+import { TREE_KEYS } from './constants'
 
 const NODE_WIDTH = 300
 
-const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
-
 /** Estimate node height based on its content to prevent overlap */
-function estimateNodeHeight(node: Node): number {
+function estimateNodeHeight(node: Node, edges: Edge[]): number {
   const d = node.data as unknown as FlowNodeData
   const actionNode: Record<string, any> = d?.actionNode ?? {}
   const schema = getSchema(d?.nodeType ?? '')
@@ -16,9 +15,14 @@ function estimateNodeHeight(node: Node): number {
   // Title bar: ~28px
   let height = 28
 
-  // Pin rows
+  // Pin rows — use explicit isCondition flag + edge fallback for dynamic nodes
   const isEvent = d?.isEventTrigger
-  const isConditionNode = d?.treePath?.includes('.condition')
+  const isConditionByEdge = edges.some(e =>
+    e.source === node.id &&
+    e.sourceHandle === 'bool_out' &&
+    (e.targetHandle === 'condition' || e.targetHandle?.startsWith('condition_'))
+  )
+  const isConditionNode = d?.isCondition || isConditionByEdge
 
   let leftPinCount = 0
   if (!isEvent && !isConditionNode) leftPinCount++
@@ -31,7 +35,7 @@ function estimateNodeHeight(node: Node): number {
   let rightPinCount = 0
   if (!isConditionNode) rightPinCount++
   if (schema.hasBranches) rightPinCount += 2
-  if (isConditionNode) rightPinCount++
+  if (isConditionNode || schema.usedAsCondition) rightPinCount++
 
   const pinRows = Math.max(leftPinCount, rightPinCount)
   height += pinRows * 18 + (pinRows > 0 ? 6 : 0) // 18px per row + padding
@@ -72,7 +76,7 @@ export function autoLayout(
 
   const nodeSizes = new Map<string, { width: number; height: number }>()
   for (const node of nodes) {
-    const height = estimateNodeHeight(node)
+    const height = estimateNodeHeight(node, edges)
     const size = { width: NODE_WIDTH, height }
     nodeSizes.set(node.id, size)
     g.setNode(node.id, size)

@@ -209,8 +209,8 @@ export function BuffTemplateEditor({ store }: Props) {
 
   const pushUndo = useCallback(() => {
     undoStack.current.push({
-      nodes: nodesRef.current.map(n => ({ ...n, data: { ...n.data } })),
-      edges: [...edgesRef.current],
+      nodes: nodesRef.current.map(n => ({ ...n, data: JSON.parse(JSON.stringify(n.data)) })),
+      edges: edgesRef.current.map(e => ({ ...e })),
     })
     if (undoStack.current.length > MAX_UNDO) undoStack.current.shift()
     redoStack.current = []
@@ -223,8 +223,8 @@ export function BuffTemplateEditor({ store }: Props) {
     if (!s) return
     // Push current state to redo
     redoStack.current.push({
-      nodes: nodesRef.current.map(n => ({ ...n, data: { ...n.data } })),
-      edges: [...edgesRef.current],
+      nodes: nodesRef.current.map(n => ({ ...n, data: JSON.parse(JSON.stringify(n.data)) })),
+      edges: edgesRef.current.map(e => ({ ...e })),
     })
     setNodes(s.nodes); setEdges(s.edges)
     setUndoLen(undoStack.current.length)
@@ -236,8 +236,8 @@ export function BuffTemplateEditor({ store }: Props) {
     if (!s) return
     // Push current state to undo
     undoStack.current.push({
-      nodes: nodesRef.current.map(n => ({ ...n, data: { ...n.data } })),
-      edges: [...edgesRef.current],
+      nodes: nodesRef.current.map(n => ({ ...n, data: JSON.parse(JSON.stringify(n.data)) })),
+      edges: edgesRef.current.map(e => ({ ...e })),
     })
     setNodes(s.nodes); setEdges(s.edges)
     setUndoLen(undoStack.current.length)
@@ -246,6 +246,7 @@ export function BuffTemplateEditor({ store }: Props) {
 
   // ── Clipboard ──
   const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null)
+  const pasteCountRef = useRef(0)
   const [hasClipboard, setHasClipboard] = useState(false)
 
   const copyNodes = useCallback(() => {
@@ -257,6 +258,7 @@ export function BuffTemplateEditor({ store }: Props) {
       nodes: selNodes.map(n => ({ ...n, data: { ...n.data } })),
       edges: selEdges.map(e => ({ ...e })),
     }
+    pasteCountRef.current = 0
     setHasClipboard(true)
   }, [selectedNodeIds])
 
@@ -266,10 +268,12 @@ export function BuffTemplateEditor({ store }: Props) {
     const { nodes: clipNodes, edges: clipEdges } = clipboardRef.current
     const idMap = new Map<string, string>()
     const now = Date.now()
+    pasteCountRef.current++
+    const offset = 30 * pasteCountRef.current
     const newNodes = clipNodes.map((n, i) => {
       const newId = `paste_${now}_${i}`
       idMap.set(n.id, newId)
-      return { ...n, id: newId, position: { x: n.position.x + 30, y: n.position.y + 30 }, data: { ...n.data }, selected: true }
+      return { ...n, id: newId, position: { x: n.position.x + offset, y: n.position.y + offset }, data: { ...n.data }, selected: true }
     })
     const newEdges = clipEdges
       .filter(e => idMap.has(e.source) && idMap.has(e.target))
@@ -397,11 +401,14 @@ export function BuffTemplateEditor({ store }: Props) {
   }, [activeKey, activeSeasonId, isReadOnly, buffTemplates, updateTemplates])
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveGraphRef = useRef(saveGraph)
+  useEffect(() => { saveGraphRef.current = saveGraph }, [saveGraph])
+
   const debouncedSave = useCallback(() => {
     if (isReadOnly) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(saveGraph, 500)
-  }, [saveGraph, isReadOnly])
+    saveTimerRef.current = setTimeout(() => saveGraphRef.current(), 500)
+  }, [isReadOnly])
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
 
   const saveImmediate = useCallback(() => {
@@ -475,13 +482,25 @@ export function BuffTemplateEditor({ store }: Props) {
   }, [nodes])
 
   const handleNodesChange = useCallback((n: Node[]) => {
+    // Only push undo for structural changes (add/remove), not position/selection
+    if (!isReadOnly && n.length !== nodesRef.current.length) pushUndo()
     setNodes(n)
-    if (!isReadOnly) { pushUndo(); debouncedSave() }
+    if (!isReadOnly) debouncedSave()
   }, [isReadOnly, debouncedSave, pushUndo])
 
   const handleEdgesChange = useCallback((e: Edge[]) => {
     if (isReadOnly) return
-    pushUndo(); setEdges(e); debouncedSave()
+    // Push undo for structural changes: add/remove OR reconnect
+    const prev = edgesRef.current
+    if (e.length !== prev.length) {
+      pushUndo()
+    } else {
+      // Fingerprint-based comparison (order-independent)
+      const fp = (edge: Edge) => `${edge.source}|${edge.target}|${edge.sourceHandle ?? ''}|${edge.targetHandle ?? ''}`
+      const prevSet = new Set(prev.map(fp))
+      if (e.some(edge => !prevSet.has(fp(edge)))) pushUndo()
+    }
+    setEdges(e); debouncedSave()
   }, [isReadOnly, debouncedSave, pushUndo])
 
   const addEvent = useCallback((eventType: string | null) => {
@@ -496,15 +515,28 @@ export function BuffTemplateEditor({ store }: Props) {
     debouncedSave()
   }, [activeKey, isReadOnly, debouncedSave, pushUndo, getViewportCenter])
 
+  /** Build FlowNodeData for a newly created action node from schema.
+   *  isCondition is NOT pre-set — BlueprintNode detects it dynamically
+   *  from edges (isConditionByConnection) once the user connects it. */
+  const buildNewNodeData = useCallback((schema: NodeSchema): FlowNodeData => ({
+    label: schema.shortName,
+    nodeType: schema.type,
+    category: schema.category,
+    color: '',
+    actionNode: buildDefaultNode(schema.type),
+    treePath: `new_${Date.now()}`,
+  }), [])
+
   const addNodeFromPalette = useCallback((schema: NodeSchema) => {
     if (isReadOnly) return; pushUndo()
     const center = getViewportCenter()
     setNodes(prev => [...prev, {
       id: `action_${Date.now()}`, type: 'blueprint',
       position: { x: center.x - 90, y: center.y - 25 },
-      data: { label: schema.shortName, nodeType: schema.type, category: schema.category, color: '', actionNode: buildDefaultNode(schema.type), treePath: `new_${Date.now()}` } as FlowNodeData,
+      data: buildNewNodeData(schema) as FlowNodeData,
     }])
-  }, [isReadOnly, pushUndo, getViewportCenter])
+    debouncedSave()
+  }, [isReadOnly, pushUndo, getViewportCenter, debouncedSave, buildNewNodeData])
 
   const handleDrop = useCallback((e: React.DragEvent, position: { x: number; y: number }) => {
     if (isReadOnly) return
@@ -516,9 +548,10 @@ export function BuffTemplateEditor({ store }: Props) {
     pendingCenterRef.current = { id: nodeId, x: position.x, y: position.y }
     setNodes(prev => [...prev, {
       id: nodeId, type: 'blueprint', position,
-      data: { label: schema.shortName, nodeType: type, category: schema.category, color: '', actionNode: buildDefaultNode(type), treePath: `new_${Date.now()}` } as FlowNodeData,
+      data: buildNewNodeData(schema) as FlowNodeData,
     }])
-  }, [isReadOnly, pushUndo])
+    debouncedSave()
+  }, [isReadOnly, pushUndo, debouncedSave, buildNewNodeData])
 
   const handleAutoLayout = useCallback(() => {
     pushUndo(); setNodes(autoLayout(nodesRef.current, edgesRef.current))
@@ -614,12 +647,7 @@ export function BuffTemplateEditor({ store }: Props) {
 
     setNodes(prev => [...prev, {
       id: nodeId, type: 'blueprint', position,
-      data: {
-        label: schema.shortName, nodeType: schema.type,
-        category: schema.category, color: '',
-        actionNode: buildDefaultNode(schema.type),
-        treePath: `new_${Date.now()}`,
-      } as FlowNodeData,
+      data: buildNewNodeData(schema) as FlowNodeData,
     }])
 
     // Auto-connect if triggered from a dangling connection
@@ -639,13 +667,14 @@ export function BuffTemplateEditor({ store }: Props) {
         })
       } else {
         // Normal: from output → new node's input
+        const targetHandle = fromHandleId === 'bool_out' ? 'condition' : 'in'
         setEdges(prev => {
           const filtered = prev.filter(e =>
             !(e.source === fromNodeId && e.sourceHandle === fromHandleId),
           )
           return [...filtered, {
             id: `edge_${Date.now()}`, source: fromNodeId, sourceHandle: fromHandleId,
-            target: nodeId, targetHandle: 'in', type: edgeStyle,
+            target: nodeId, targetHandle, type: edgeStyle,
           }]
         })
       }
@@ -653,7 +682,7 @@ export function BuffTemplateEditor({ store }: Props) {
 
     setNodeSearchMenu(null)
     debouncedSave()
-  }, [isReadOnly, nodeSearchMenu, pushUndo, edgeStyle, debouncedSave])
+  }, [isReadOnly, nodeSearchMenu, pushUndo, edgeStyle, debouncedSave, buildNewNodeData])
 
   const goToDefinition = useCallback((templateKey: string) => {
     if (templateKey in buffTemplates) {
@@ -683,6 +712,20 @@ export function BuffTemplateEditor({ store }: Props) {
     [contextMenu, getContextMenuItems],
   )
 
+  const handlePropertyEdit = useCallback((nodeId: string, key: string, value: unknown) => {
+    if (isReadOnly) return
+    pushUndo()
+    setNodes(prev => prev.map(n => {
+      if (n.id !== nodeId) return n
+      const nd = n.data as unknown as FlowNodeData
+      const updatedAction = nd.actionNode
+        ? { ...nd.actionNode, [key]: value }
+        : { $type: nd.nodeType, [key]: value }
+      return { ...n, data: { ...nd, actionNode: updatedAction } }
+    }))
+    debouncedSave()
+  }, [isReadOnly, pushUndo, debouncedSave])
+
   const contextValue = useMemo<BuffEditorContextValue>(() => ({
     goToDefinition,
     refIndex,
@@ -691,7 +734,8 @@ export function BuffTemplateEditor({ store }: Props) {
     selectedNodeType,
     labelMode,
     isReadOnly,
-  }), [goToDefinition, refIndex, refTemplates, activeKey, selectedNodeType, labelMode, isReadOnly])
+    onPropertyEdit: handlePropertyEdit,
+  }), [goToDefinition, refIndex, refTemplates, activeKey, selectedNodeType, labelMode, isReadOnly, handlePropertyEdit])
 
   const displayedTemplates = listMode === 'ref' ? (refTemplates ?? {}) : buffTemplates
 

@@ -12,6 +12,8 @@ export interface NodeSchema {
   hasBranches: boolean
   hasCondition: boolean
   hasMultiCondition: boolean
+  /** This type is used as a condition node (inside _conditionNode or _conditionsNode) */
+  usedAsCondition: boolean
   instanceCount: number
 }
 
@@ -41,12 +43,13 @@ function inferCategory(name: string): string {
 }
 
 import { collectPropertyValue, collectNestedValues, finalizeEnums } from './enumRegistry'
-
-const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
+import { TREE_KEYS, OPAQUE_TREE_KEYS, GRAPH_TREE_KEYS } from './constants'
 const MAX_EXAMPLES = 3
 
 // Runtime schema map
 const schemaMap = new Map<string, NodeSchema>()
+/** Canonical instance per $type — first real instance seen, used by buildDefaultNode */
+const canonicalMap = new Map<string, Record<string, unknown>>()
 let _loaded = false
 
 export function isSchemaLoaded(): boolean {
@@ -68,6 +71,7 @@ export function getSchema(rawType: string): NodeSchema {
     hasBranches: false,
     hasCondition: false,
     hasMultiCondition: false,
+    usedAsCondition: false,
     instanceCount: 0,
   }
   schemaMap.set(key, schema)
@@ -88,15 +92,34 @@ export function getSchemasByCategory(): Map<string, NodeSchema[]> {
   return map
 }
 
+/**
+ * Build a default ActionNode for the given $type.
+ * If a canonical instance exists (from loadGameData scan), deep-clone it
+ * and sanitise arrays/child nodes. Otherwise fall back to schema inference.
+ */
 export function buildDefaultNode(rawType: string): Record<string, unknown> {
+  const key = normalizeType(rawType)
+  const canonical = canonicalMap.get(key)
+
+  if (canonical) {
+    // Deep clone the canonical instance
+    const node: Record<string, unknown> = JSON.parse(JSON.stringify(canonical))
+    // Ensure $type matches the requested rawType (may differ in casing)
+    node.$type = rawType
+    // Sanitise: clear tree-structure children so user starts with empty branches
+    sanitiseForNew(node)
+    return node
+  }
+
+  // Fallback: construct from schema (for unknown types / custom $type)
   const schema = getSchema(rawType)
   const node: Record<string, unknown> = { $type: rawType }
-  for (const [key, prop] of Object.entries(schema.properties)) {
-    node[key] = prop.defaultValue
+  for (const [k, prop] of Object.entries(schema.properties)) {
+    node[k] = prop.defaultValue
   }
   if (schema.hasBranches) {
-    node._succeedNodes = []
-    node._failNodes = []
+    node._succeedNodes = null
+    node._failNodes = null
   }
   if (schema.hasCondition) {
     node._conditionNode = null
@@ -106,6 +129,61 @@ export function buildDefaultNode(rawType: string): Record<string, unknown> {
     node._isAnd = true
   }
   return node
+}
+
+/**
+ * Recursively clear tree-structure children and data arrays in a cloned node
+ * so that it serves as a clean default for new node creation.
+ */
+function sanitiseForNew(node: Record<string, unknown>) {
+  for (const k of Object.keys(node)) {
+    if (k === '$type') continue
+
+    // Graph tree keys → null (user adds children via edges)
+    if (GRAPH_TREE_KEYS.has(k)) {
+      if (k === '_conditionsNode') {
+        node[k] = []
+      } else {
+        node[k] = null
+      }
+      continue
+    }
+
+    // Opaque tree keys → null (same as C# default for uninitialized List)
+    if (OPAQUE_TREE_KEYS.has(k)) {
+      node[k] = null
+      continue
+    }
+
+    // _isAnd is preserved from canonical (usually true)
+    if (k === '_isAnd') continue
+
+    const v = node[k]
+    // Data arrays → empty (user fills in items)
+    if (Array.isArray(v)) {
+      node[k] = []
+      continue
+    }
+
+    // Nested objects → recursively sanitise their arrays but keep structure
+    if (v && typeof v === 'object') {
+      sanitiseNestedObject(v as Record<string, unknown>)
+    }
+    // Primitives (string, number, boolean, null) → keep canonical default value
+  }
+}
+
+/** Sanitise a nested data object (like _buff): keep scalars, clear arrays */
+function sanitiseNestedObject(obj: Record<string, unknown>) {
+  for (const k of Object.keys(obj)) {
+    const v = obj[k]
+    if (Array.isArray(v)) {
+      obj[k] = []
+    } else if (v && typeof v === 'object') {
+      sanitiseNestedObject(v as Record<string, unknown>)
+    }
+    // Primitives → keep as-is (correct C# defaults from canonical)
+  }
 }
 
 // ── Dynamic loading & schema generation ──
@@ -191,6 +269,14 @@ export async function loadGameData(
   return templates
 }
 
+/** Mark the $type of a condition-shaped node as usedAsCondition in its schema */
+function markConditionTypes(node: Record<string, unknown>) {
+  const condType = node.$type as string
+  if (condType) {
+    getSchema(condType).usedAsCondition = true
+  }
+}
+
 function walkNode(node: Record<string, unknown>) {
   const $type = node.$type as string
   if (!$type) return
@@ -207,15 +293,33 @@ function walkNode(node: Record<string, unknown>) {
       hasBranches: false,
       hasCondition: false,
       hasMultiCondition: false,
+      usedAsCondition: false,
       instanceCount: 0,
     }
     schemaMap.set(key, schema)
   }
   schema.instanceCount++
 
+  // Store first instance as canonical template for buildDefaultNode
+  if (!canonicalMap.has(key)) {
+    canonicalMap.set(key, JSON.parse(JSON.stringify(node)))
+  }
+
   if (node._succeedNodes || node._failNodes) schema.hasBranches = true
   if (node._conditionNode) schema.hasCondition = true
   if (Array.isArray(node._conditionsNode)) schema.hasMultiCondition = true
+
+  // Mark child condition node types as usedAsCondition
+  if (node._conditionNode && typeof node._conditionNode === 'object') {
+    markConditionTypes(node._conditionNode as Record<string, unknown>)
+  }
+  if (Array.isArray(node._conditionsNode)) {
+    for (const c of node._conditionsNode) {
+      if (c && typeof c === 'object') {
+        markConditionTypes(c as Record<string, unknown>)
+      }
+    }
+  }
 
   for (const [k, v] of Object.entries(node)) {
     if (TREE_KEYS.has(k)) continue
@@ -243,23 +347,16 @@ function walkNode(node: Record<string, unknown>) {
     }
   }
 
-  // Recurse
-  if (node._conditionNode && typeof node._conditionNode === 'object') {
-    walkNode(node._conditionNode as Record<string, unknown>)
-  }
-  if (Array.isArray(node._conditionsNode)) {
-    for (const c of node._conditionsNode) {
-      if (c && typeof c === 'object') walkNode(c as Record<string, unknown>)
-    }
-  }
-  if (Array.isArray(node._succeedNodes)) {
-    for (const n of node._succeedNodes) {
-      if (n && typeof n === 'object') walkNode(n as Record<string, unknown>)
-    }
-  }
-  if (Array.isArray(node._failNodes)) {
-    for (const n of node._failNodes) {
-      if (n && typeof n === 'object') walkNode(n as Record<string, unknown>)
+  // Recurse into ALL tree-structure keys (graph + opaque)
+  for (const treeKey of [...GRAPH_TREE_KEYS, ...OPAQUE_TREE_KEYS]) {
+    const child = node[treeKey]
+    if (child && typeof child === 'object' && !Array.isArray(child)) {
+      // Single child node (e.g. _conditionNode)
+      walkNode(child as Record<string, unknown>)
+    } else if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === 'object') walkNode(item as Record<string, unknown>)
+      }
     }
   }
 }

@@ -144,6 +144,13 @@ export function useCanvasCommands(props: CanvasCommandsProps) {
   ])
 
   const hotkeyBindings = useMemo((): Array<[string, (e: KeyboardEvent) => void]> => {
+    const isInputFocused = () => {
+      const el = document.activeElement
+      if (!el) return false
+      const tag = el.tagName
+      return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable
+    }
+
     const bindings: Array<[string, (e: KeyboardEvent) => void]> = []
     for (const cmd of commands.values()) {
       if (!cmd.shortcut) continue
@@ -155,6 +162,8 @@ export function useCanvasCommands(props: CanvasCommandsProps) {
         .replace('Delete', 'Delete')
         .replace('Home', 'Home')
       bindings.push([key, (e: KeyboardEvent) => {
+        // Skip single-letter keys when a text input is focused
+        if (!key.includes('+') && isInputFocused()) return
         // Prevent browser defaults for our shortcuts
         e.preventDefault()
         if (cmd.enabled()) cmd.execute()
@@ -162,11 +171,13 @@ export function useCanvasCommands(props: CanvasCommandsProps) {
     }
 
     // Tool-switching hotkeys (single letter, no modifier)
+    // Skip when a text input is focused to avoid swallowing typed characters
     const toolKeys: Array<[string, MouseTool]> = [
       ['V', 'select'], ['H', 'pan'], ['K', 'knife'], ['C', 'comment'],
     ]
     for (const [key, tool] of toolKeys) {
       bindings.push([key, (e: KeyboardEvent) => {
+        if (isInputFocused()) return
         e.preventDefault()
         props.setActiveTool(tool)
       }])

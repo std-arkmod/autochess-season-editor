@@ -27,37 +27,41 @@ const CATEGORY_ORDER = [
 /**
  * Determine which schemas are compatible with a given handle.
  *
- * - condition/condition_N (target) ← needs a condition-producing node (control_flow)
- * - bool_out (source) → needs a node with condition input (hasCondition/hasMultiCondition)
- * - exec handles (next/true/false/in) → any action node
+ * 166 node types are used as BOTH conditions and actions depending on
+ * their position in the tree, so exec handles must NOT exclude by type.
+ *
+ * Source (dragging FROM output):
+ *   - bool_out       → nodes with condition input (hasCondition/hasMultiCondition)
+ *   - next/true/false → no filter (any type can be used as action)
+ *
+ * Target (dragging backward FROM input):
+ *   - condition/condition_N → types known to work as conditions (usedAsCondition)
+ *   - in → no filter (any type can be used as action)
  */
 function buildHandleFilter(cf?: ConnectionFilter): ((s: NodeSchema) => boolean) | null {
   if (!cf?.handleId) return null
   const { handleId, handleType } = cf
 
-  // Dragging from a condition input → need condition nodes
-  if (handleType === 'target' && (handleId === 'condition' || handleId.startsWith('condition_'))) {
-    return (s) => s.category === 'control_flow'
-  }
-
-  // Dragging from bool_out → need nodes that accept conditions
   if (handleType === 'source' && handleId === 'bool_out') {
+    // bool_out → nodes that accept condition input
     return (s) => s.hasCondition || s.hasMultiCondition
   }
 
-  // Exec handles — no restriction
+  if (handleType === 'target' && (handleId === 'condition' || handleId.startsWith('condition_'))) {
+    // condition input ← types known to produce boolean results
+    return (s) => s.usedAsCondition
+  }
+
+  // exec handles (next/true/false/in) → no type restriction
   return null
 }
 
 function filterHint(cf?: ConnectionFilter): string | null {
   if (!cf?.handleId) return null
   const { handleId, handleType } = cf
-  if (handleType === 'target' && (handleId === 'condition' || handleId.startsWith('condition_'))) {
-    return '筛选：条件节点'
-  }
-  if (handleType === 'source' && handleId === 'bool_out') {
-    return '筛选：可接收条件的节点'
-  }
+
+  if (handleType === 'source' && handleId === 'bool_out') return '筛选：可接收条件的节点'
+  if (handleType === 'target' && (handleId === 'condition' || handleId.startsWith('condition_'))) return '筛选：条件节点'
   return null
 }
 
@@ -208,7 +212,7 @@ export function NodeSearchMenu({ position, opened, onClose, onSelect, connection
                 >
                   {tl(cat, categoryLabels, labelMode)} ({schemas.length})
                 </Text>
-                {schemas
+                {[...schemas]
                   .sort((a, b) => b.instanceCount - a.instanceCount)
                   .slice(0, 15)
                   .map(renderItem)}

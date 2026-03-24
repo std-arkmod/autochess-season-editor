@@ -4,7 +4,7 @@
 
 import type { BuffTemplate, ActionNode } from '@autochess-editor/shared'
 
-const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
+import { TREE_KEYS } from './constants'
 
 export interface EntityOwner {
   type: 'skill' | 'talent' | 'equip' | 'enemy' | 'token' | 'other'

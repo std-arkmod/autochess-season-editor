@@ -48,7 +48,8 @@ function buildNodeCard(name: string, catLabel: string, color: string, schema: No
   title.appendChild(catSpan)
   card.appendChild(title)
 
-  // Build pins — same logic as BlueprintNode
+  // Build pins — default (action) layout.
+  // Dual-use types also show Result pin so users can see both options.
   const leftPins: { label: string; color: string }[] = []
   leftPins.push({ label: '▶ Exec', color: '#ccc' })
   if (schema.hasCondition) {
@@ -63,6 +64,9 @@ function buildNodeCard(name: string, catLabel: string, color: string, schema: No
   if (schema.hasBranches) {
     rightPins.push({ label: 'True ▶', color: '#2ecc71' })
     rightPins.push({ label: 'False ▶', color: '#e74c3c' })
+  }
+  if (schema.usedAsCondition) {
+    rightPins.push({ label: 'Result ▶', color: '#f39c12' })
   }
 
   const pinCount = Math.max(leftPins.length, rightPins.length)
@@ -187,6 +191,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
       hasBranches: false,
       hasCondition: false,
       hasMultiCondition: false,
+      usedAsCondition: false,
       instanceCount: 0,
     }
     onAddNode(schema)
@@ -208,7 +213,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
           width: 6,
           height: 6,
           borderRadius: '50%',
-          background: categoryLabels[s.category] ? undefined : '#7f8c8d',
+          background: categoryColors[s.category] ?? '#7f8c8d',
           flexShrink: 0,
         }} />
         <Text size="10px" truncate style={{ flex: 1 }} title={tlTip(s.shortName, nodeNames, labelMode) ?? s.shortName}>{tl(s.shortName, nodeNames, labelMode)}</Text>
@@ -276,7 +281,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
                   </Accordion.Control>
                   <Accordion.Panel>
                     <Stack gap={2}>
-                      {schemas
+                      {[...schemas]
                         .sort((a, b) => b.instanceCount - a.instanceCount)
                         .slice(0, 50)
                         .map(renderItem)}
