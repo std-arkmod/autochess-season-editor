@@ -14,3 +14,13 @@ body, html {
   height: 100vh;
   overflow: hidden;
 }
+
+/* Hover effect for ref links and node palette items */
+.ref-link-item,
+.palette-item {
+  transition: background-color 0.1s;
+}
+.ref-link-item:hover,
+.palette-item:hover {
+  background-color: var(--mantine-color-dark-4) !important;
+}

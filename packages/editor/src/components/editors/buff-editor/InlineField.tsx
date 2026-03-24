@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  TextInput, NumberInput, Switch, Select, Group, Text,
+  TextInput, Autocomplete, Switch, Group, Text,
   ActionIcon, Tooltip, Collapse, Stack, Paper,
 } from '@mantine/core'
 import {
@@ -97,28 +97,27 @@ export function InlineField({ propKey, value, onChange, examples, parentKey }: P
   )
 }
 
-// ── Shared enum Select with tooltip support ──
+// ── Shared Autocomplete render for enum options with CN labels ──
 
-function enumSelectData(enumInfo: EnumInfo, mode: LabelMode) {
-  return mode === 'cn' ? enumInfo.cnOptions : enumInfo.rawOptions
-}
-
-/** Get tooltip text for a value based on the current label mode */
-function enumTooltip(enumInfo: EnumInfo, rawValue: string, mode: LabelMode): string | undefined {
-  if (mode === 'cn') return rawValue  // hovering CN shows raw
-  if (mode === 'raw') return enumInfo.labelMap[rawValue]  // hovering raw shows CN
-  return undefined  // rawOnly: no tooltip
-}
-
-function EnumSelectRenderOption(mode: LabelMode, enumInfo: EnumInfo) {
-  if (mode === 'rawOnly') return undefined
+function AutocompleteRenderOption(enumInfo: EnumInfo, mode: LabelMode) {
   return ({ option }: { option: { value: string; label: string } }) => {
-    const tip = enumTooltip(enumInfo, option.value, mode)
-    return <span title={tip}>{option.label}</span>
+    const cn = enumInfo.labelMap[option.value]
+    if (!cn || mode === 'rawOnly') return <>{option.value}</>
+    if (mode === 'cn') {
+      return <span>{cn} <span style={{ opacity: 0.5, fontSize: '9px' }}>({option.value})</span></span>
+    }
+    return <span>{option.value} <span style={{ opacity: 0.5, fontSize: '9px' }}>{cn}</span></span>
   }
 }
 
-// ── Number field (with optional enum select) ──
+// ── Number field (with optional enum autocomplete) ──
+
+/** Parse input: return number if valid, otherwise keep as string */
+function smartParse(v: string): unknown {
+  if (v === '') return 0
+  const num = Number(v)
+  return isNaN(num) ? v : num
+}
 
 function InlineNumberField({ propKey, value, onChange, label, tip }: {
   propKey: string; value: number; onChange: (v: unknown) => void; label: string; tip: string
@@ -127,24 +126,19 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
   const enumInfo = getEnumInfo(propKey)
 
   if (enumInfo) {
-    const strVal = String(value)
-    const selectTip = enumTooltip(enumInfo, strVal, labelMode)
     return (
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
-        <div style={{ flex: 1 }} title={selectTip}>
-          <Select
-            size="xs"
-            value={enumInfo.values.includes(strVal) ? strVal : null}
-            placeholder={!enumInfo.values.includes(strVal) ? strVal : undefined}
-            onChange={v => onChange(v !== null ? Number(v) : value)}
-            data={enumSelectData(enumInfo, labelMode)}
-            renderOption={EnumSelectRenderOption(labelMode, enumInfo)}
-            searchable
-            allowDeselect={false}
-            styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
-          />
-        </div>
+        <Autocomplete
+          size="xs"
+          value={String(value)}
+          onChange={v => onChange(smartParse(v))}
+          data={enumInfo.values}
+          renderOption={AutocompleteRenderOption(enumInfo, labelMode)}
+          limit={Infinity}
+          style={{ flex: 1 }}
+          styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
+        />
       </Group>
     )
   }
@@ -152,12 +146,10 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
   return (
     <Group gap={4} wrap="nowrap" align="center">
       <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
-      <NumberInput
+      <TextInput
         size="xs"
-        value={value}
-        onChange={v => onChange(typeof v === 'number' ? v : 0)}
-        step={Number.isInteger(value) ? 1 : 0.1}
-        decimalScale={4}
+        value={String(value)}
+        onChange={e => onChange(smartParse(e.currentTarget.value))}
         style={{ flex: 1 }}
         styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
       />
@@ -175,27 +167,20 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
   const isKnownKey = value && refIndex?.allTemplateKeys.has(value)
   const showLink = isKnownKey || isRefProp(propKey)
 
-  // All string fields use Select — game logic only accepts known values
   if (enumInfo) {
-    const isInEnum = enumInfo.values.includes(value)
-    const selectTip = enumTooltip(enumInfo, value, labelMode)
     return (
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
-        <div style={{ flex: 1 }} title={selectTip}>
-          <Select
-            size="xs"
-            value={isInEnum ? value : null}
-            placeholder={isInEnum ? undefined : value}
-            onChange={v => { if (v !== null) onChange(v) }}
-            data={enumSelectData(enumInfo, labelMode)}
-            renderOption={EnumSelectRenderOption(labelMode, enumInfo)}
-            searchable
-            allowDeselect={false}
-            limit={80}
-            styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
-          />
-        </div>
+        <Autocomplete
+          size="xs"
+          value={value}
+          onChange={v => onChange(v)}
+          data={enumInfo.values}
+          renderOption={AutocompleteRenderOption(enumInfo, labelMode)}
+          limit={Infinity}
+          style={{ flex: 1 }}
+          styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
+        />
         {showLink && value && (
           <GoToDefButton value={value} goToDefinition={goToDefinition} />
         )}

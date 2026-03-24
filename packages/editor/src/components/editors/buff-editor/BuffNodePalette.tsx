@@ -1,11 +1,131 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { Stack, TextInput, Text, Paper, Group, Badge, Accordion } from '@mantine/core'
 import { IconSearch, IconPlus } from '@tabler/icons-react'
-import { getAllSchemas, getSchemasByCategory, categoryLabels, type NodeSchema } from './nodeSchema'
+import { getAllSchemas, getSchemasByCategory, categoryLabels, categoryColors, type NodeSchema } from './nodeSchema'
 import { nodeNames, tl, tlTip } from './buffEditorI18n'
 import { useBuffEditor } from './BuffEditorContext'
 
 const PAGE_SIZE = 60
+
+/** Reusable off-screen container for drag preview */
+let dragGhost: HTMLDivElement | null = null
+function getDragGhost() {
+  if (!dragGhost) {
+    dragGhost = document.createElement('div')
+    Object.assign(dragGhost.style, {
+      position: 'absolute', left: '0px', top: '0px',
+      pointerEvents: 'none', zIndex: '99999',
+      transform: 'translate(-9999px, -9999px)',
+    })
+    document.body.appendChild(dragGhost)
+  }
+  return dragGhost
+}
+
+function buildNodeCard(name: string, catLabel: string, color: string, schema: NodeSchema): HTMLDivElement {
+  const card = document.createElement('div')
+  Object.assign(card.style, {
+    background: '#1a1a2e', borderRadius: '6px',
+    border: `1px solid ${color}`,
+    width: '280px', fontSize: '11px',
+    boxShadow: `0 4px 16px ${color}44`,
+    overflow: 'hidden', fontFamily: 'sans-serif',
+  })
+
+  // Title bar
+  const title = document.createElement('div')
+  Object.assign(title.style, {
+    background: color, color: '#fff',
+    padding: '5px 10px', fontWeight: '600', fontSize: '11px',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  })
+  const nameSpan = document.createElement('span')
+  nameSpan.textContent = name
+  const catSpan = document.createElement('span')
+  catSpan.textContent = catLabel
+  Object.assign(catSpan.style, { fontSize: '9px', opacity: '0.6' })
+  title.appendChild(nameSpan)
+  title.appendChild(catSpan)
+  card.appendChild(title)
+
+  // Build pins — same logic as BlueprintNode
+  const leftPins: { label: string; color: string }[] = []
+  leftPins.push({ label: '▶ Exec', color: '#ccc' })
+  if (schema.hasCondition) {
+    leftPins.push({ label: '● 条件', color: '#f39c12' })
+  }
+  if (schema.hasMultiCondition) {
+    leftPins.push({ label: '● 条件1', color: '#f39c12' })
+  }
+
+  const rightPins: { label: string; color: string }[] = []
+  rightPins.push({ label: 'Exec ▶', color: '#ccc' })
+  if (schema.hasBranches) {
+    rightPins.push({ label: 'True ▶', color: '#2ecc71' })
+    rightPins.push({ label: 'False ▶', color: '#e74c3c' })
+  }
+
+  const pinCount = Math.max(leftPins.length, rightPins.length)
+  const propKeys = Object.keys(schema.properties)
+  const hasPins = pinCount > 0
+  const hasProps = propKeys.length > 0
+
+  if (hasPins) {
+    const pinsDiv = document.createElement('div')
+    if (hasProps) pinsDiv.style.borderBottom = '1px solid #333'
+    for (let i = 0; i < pinCount; i++) {
+      const row = document.createElement('div')
+      Object.assign(row.style, {
+        display: 'flex', justifyContent: 'space-between',
+        padding: '3px 10px', fontSize: '9px', minHeight: '18px',
+      })
+      const left = leftPins[i]
+      const right = rightPins[i]
+      const ls = document.createElement('span')
+      ls.textContent = left?.label ?? ''
+      ls.style.color = left?.color ?? 'transparent'
+      const rs = document.createElement('span')
+      rs.textContent = right?.label ?? ''
+      rs.style.color = right?.color ?? 'transparent'
+      row.appendChild(ls)
+      row.appendChild(rs)
+      pinsDiv.appendChild(row)
+    }
+    card.appendChild(pinsDiv)
+  }
+
+  // Properties
+  if (hasProps) {
+    const body = document.createElement('div')
+    Object.assign(body.style, { padding: '4px 8px' })
+    for (const key of propKeys.slice(0, 5)) {
+      const row = document.createElement('div')
+      Object.assign(row.style, {
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '1px 0', fontSize: '9px',
+      })
+      const label = document.createElement('span')
+      label.textContent = key
+      Object.assign(label.style, { color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '130px' })
+      const val = document.createElement('span')
+      const def = schema.properties[key]?.defaultValue
+      val.textContent = def === null ? 'null' : def === '' ? '""' : String(def ?? '···')
+      Object.assign(val.style, { color: '#666', fontSize: '9px', fontFamily: 'monospace', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+      row.appendChild(label)
+      row.appendChild(val)
+      body.appendChild(row)
+    }
+    if (propKeys.length > 5) {
+      const more = document.createElement('div')
+      more.textContent = `... +${propKeys.length - 5}`
+      Object.assign(more.style, { fontSize: '8px', color: '#555', textAlign: 'center', padding: '2px 0' })
+      body.appendChild(more)
+    }
+    card.appendChild(body)
+  }
+
+  return card
+}
 
 interface Props {
   onAddNode: (schema: NodeSchema) => void
@@ -45,6 +165,16 @@ export function BuffNodePalette({ onAddNode }: Props) {
   const handleDragStart = (e: React.DragEvent, schema: NodeSchema) => {
     e.dataTransfer.setData('application/buff-node-type', schema.type)
     e.dataTransfer.effectAllowed = 'move'
+
+    const color = categoryColors[schema.category] ?? '#7f8c8d'
+    const name = tl(schema.shortName, nodeNames, labelMode)
+    const catLabel = tl(schema.category, categoryLabels, labelMode)
+    const ghost = getDragGhost()
+    ghost.innerHTML = ''
+    ghost.appendChild(buildNodeCard(name, catLabel, color, schema))
+    // Force browser to layout before capture
+    void ghost.offsetHeight
+    e.dataTransfer.setDragImage(ghost, 140, 14)
   }
 
   const handleCustomCreate = () => {
@@ -67,6 +197,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
     <Paper
       key={s.type}
       p={4}
+      className="palette-item"
       style={{ cursor: 'grab', fontSize: 10 }}
       draggable
       onDragStart={e => handleDragStart(e, s)}

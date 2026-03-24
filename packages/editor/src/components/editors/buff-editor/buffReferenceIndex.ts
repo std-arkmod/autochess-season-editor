@@ -110,13 +110,20 @@ function walkForRefs(
     }
   }
 
-  // Detect _key / _buffKey string props that match known template keys
-  for (const prop of ['_key', '_buffKey', '_templateKey', '_targetBuffKey']) {
+  // Detect buff reference string props
+  // _buffKey/_templateKey/_targetBuffKey are always buff references
+  for (const prop of ['_buffKey', '_templateKey', '_targetBuffKey']) {
     const v = node[prop]
-    if (typeof v === 'string' && v && allKeys.has(v) && v !== sourceKey) {
+    if (typeof v === 'string' && v && v !== sourceKey) {
       addRef(referencedBy, v, sourceKey)
       addDep(dependsOn, sourceKey, v)
     }
+  }
+  // _key is only a buff reference if it matches a known template key
+  const keyVal = node._key
+  if (typeof keyVal === 'string' && keyVal && allKeys.has(keyVal) && keyVal !== sourceKey) {
+    addRef(referencedBy, keyVal, sourceKey)
+    addDep(dependsOn, sourceKey, keyVal)
   }
 
   // Recurse tree

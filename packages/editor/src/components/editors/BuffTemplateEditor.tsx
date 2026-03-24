@@ -445,6 +445,23 @@ export function BuffTemplateEditor({ store }: Props) {
     updateTemplates({ ...buffTemplates, [newKey]: copy })
   }, [buffTemplates, refTemplates, listMode, updateTemplates])
 
+  const pendingCenterRef = useRef<{ id: string; x: number; y: number } | null>(null)
+
+  // Center newly dropped node once ReactFlow measures it
+  useEffect(() => {
+    const pending = pendingCenterRef.current
+    if (!pending) return
+    const node = nodes.find(n => n.id === pending.id)
+    if (!node?.measured?.width) return
+    pendingCenterRef.current = null
+    const w = node.measured.width
+    setNodes(prev => prev.map(n =>
+      n.id === pending.id
+        ? { ...n, position: { x: pending.x - w / 2, y: pending.y } }
+        : n,
+    ))
+  }, [nodes])
+
   const handleNodesChange = useCallback((n: Node[]) => {
     setNodes(n)
     if (!isReadOnly) { pushUndo(); debouncedSave() }
@@ -483,8 +500,10 @@ export function BuffTemplateEditor({ store }: Props) {
     if (!type) return
     pushUndo()
     const schema = getSchema(type)
+    const nodeId = `action_${Date.now()}`
+    pendingCenterRef.current = { id: nodeId, x: position.x, y: position.y }
     setNodes(prev => [...prev, {
-      id: `action_${Date.now()}`, type: 'blueprint', position,
+      id: nodeId, type: 'blueprint', position,
       data: { label: schema.shortName, nodeType: type, category: schema.category, color: '', actionNode: buildDefaultNode(type), treePath: `new_${Date.now()}` } as FlowNodeData,
     }])
   }, [isReadOnly, pushUndo])

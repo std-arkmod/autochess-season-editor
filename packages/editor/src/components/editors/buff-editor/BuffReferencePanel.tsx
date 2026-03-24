@@ -178,29 +178,54 @@ function SelectedNodeBadge() {
 }
 
 function RefLink({ templateKey, showDetail }: { templateKey: string; showDetail?: boolean }) {
-  const { goToDefinition, refTemplates, labelMode } = useBuffEditor()
+  const { goToDefinition, refTemplates, refIndex, labelMode } = useBuffEditor()
   const template = refTemplates?.[templateKey]
+  const canNavigate = refIndex?.allTemplateKeys.has(templateKey)
+
+  const inner = (
+    <Paper
+      p={showDetail ? 8 : 4}
+      className="ref-link-item"
+      style={{
+        fontSize: showDetail ? 12 : 10,
+        opacity: canNavigate ? 1 : 0.6,
+        cursor: canNavigate ? 'pointer' : 'default',
+      }}
+    >
+      <Group gap={4} wrap="nowrap">
+        <IconArrowRight size={showDetail ? 12 : 10} style={{ flexShrink: 0, color: canNavigate ? undefined : 'var(--mantine-color-orange-5)' }} />
+        <Text
+          size={showDetail ? 'xs' : '10px'}
+          fw={500}
+          truncate
+          style={{ flex: 1, color: canNavigate ? undefined : 'var(--mantine-color-orange-5)' }}
+          title={canNavigate ? templateKey : `${templateKey}（外部引用，无法跳转）`}
+        >
+          {templateKey}
+        </Text>
+        {!canNavigate && <Badge size="xs" variant="light" color="orange">外部</Badge>}
+        {showDetail && template && (
+          <>
+            {template.effectKey && <Badge size="xs" variant="outline" color="gray">{template.effectKey}</Badge>}
+            <Badge size="xs" variant="dot" color="gray">{Object.keys(template.eventToActions ?? {}).length} 事件</Badge>
+          </>
+        )}
+      </Group>
+      {showDetail && template && (
+        <Group gap={4} mt={4} ml={16}>
+          {Object.keys(template.eventToActions ?? {}).map(ev => (
+            <Badge key={ev} size="xs" variant="light" color="blue" title={tlTip(ev, eventLabels, labelMode)}>{tl(ev, eventLabels, labelMode)}</Badge>
+          ))}
+        </Group>
+      )}
+    </Paper>
+  )
+
+  if (!canNavigate) return <div style={{ width: '100%' }}>{inner}</div>
+
   return (
     <UnstyledButton onClick={() => goToDefinition(templateKey)} style={{ width: '100%' }}>
-      <Paper p={showDetail ? 8 : 4} style={{ fontSize: showDetail ? 12 : 10 }}>
-        <Group gap={4} wrap="nowrap">
-          <IconArrowRight size={showDetail ? 12 : 10} style={{ flexShrink: 0 }} />
-          <Text size={showDetail ? 'xs' : '10px'} fw={500} truncate style={{ flex: 1 }} title={templateKey}>{templateKey}</Text>
-          {showDetail && template && (
-            <>
-              {template.effectKey && <Badge size="xs" variant="outline" color="gray">{template.effectKey}</Badge>}
-              <Badge size="xs" variant="dot" color="gray">{Object.keys(template.eventToActions ?? {}).length} 事件</Badge>
-            </>
-          )}
-        </Group>
-        {showDetail && template && (
-          <Group gap={4} mt={4} ml={16}>
-            {Object.keys(template.eventToActions ?? {}).map(ev => (
-              <Badge key={ev} size="xs" variant="light" color="blue" title={tlTip(ev, eventLabels, labelMode)}>{tl(ev, eventLabels, labelMode)}</Badge>
-            ))}
-          </Group>
-        )}
-      </Paper>
+      {inner}
     </UnstyledButton>
   )
 }
@@ -209,7 +234,7 @@ function EntityItem({ owner, showDetail }: { owner: EntityOwner; showDetail?: bo
   const colorMap: Record<string, string> = { skill: 'blue', talent: 'grape', equip: 'teal', enemy: 'red', token: 'orange', other: 'gray' }
   const labelMap: Record<string, string> = { skill: '技能', talent: '天赋', equip: '模组', enemy: '敌人', token: '召唤物', other: '其他' }
   return (
-    <Paper p={showDetail ? 8 : 4} style={{ fontSize: showDetail ? 12 : 10 }}>
+    <Paper p={showDetail ? 8 : 4} className="ref-link-item" style={{ fontSize: showDetail ? 12 : 10 }}>
       <Group gap={showDetail ? 8 : 4} wrap="nowrap">
         <Badge size={showDetail ? 'sm' : 'xs'} variant="light" color={colorMap[owner.type] ?? 'gray'}>{labelMap[owner.type] ?? owner.type}</Badge>
         <Text size={showDetail ? 'sm' : '10px'} fw={500}>{owner.entityName}</Text>
@@ -312,7 +337,7 @@ function UsageExamplesSection({ compact }: { compact: boolean }) {
         <Text size="9px" c="dimmed">{displayName} 在游戏数据中的用法:</Text>
         {examples.map((ex, i) => (
           <UnstyledButton key={i} onClick={() => goToDefinition(ex.templateKey)} style={{ width: '100%' }}>
-            <Paper p={4} style={{ fontSize: 10 }}>
+            <Paper p={4} className="ref-link-item" style={{ fontSize: 10 }}>
               <Group gap={4} mb={2}>
                 <IconSearch size={9} />
                 <Text size="9px" fw={500} truncate title={ex.templateKey}>{ex.templateKey}</Text>
@@ -383,8 +408,46 @@ function UsageExampleCard({ example, index }: { example: UsageExample; index: nu
 
 // ─── Dependency Graph ───
 
+function GraphNode({ templateKey, full }: { templateKey: string; full?: boolean }) {
+  const { goToDefinition, refIndex } = useBuffEditor()
+  const canNavigate = refIndex?.allTemplateKeys.has(templateKey)
+  const fs = full ? 12 : 10
+  const nodeFs = full ? '11px' : '9px'
+  const pad = full ? 8 : 3
+
+  const paper = (
+    <Paper
+      p={pad}
+      className="ref-link-item"
+      style={{
+        fontSize: fs,
+        textAlign: 'center',
+        cursor: canNavigate ? 'pointer' : 'default',
+        opacity: canNavigate ? 1 : 0.6,
+      }}
+    >
+      <Text
+        size={nodeFs}
+        truncate
+        title={canNavigate ? templateKey : `${templateKey}（外部引用）`}
+        style={{ color: canNavigate ? undefined : 'var(--mantine-color-orange-5)' }}
+      >
+        {templateKey}
+      </Text>
+    </Paper>
+  )
+
+  if (!canNavigate) return paper
+
+  return (
+    <UnstyledButton onClick={() => goToDefinition(templateKey)} style={{ width: '100%' }}>
+      {paper}
+    </UnstyledButton>
+  )
+}
+
 function DependencyGraphSection({ activeKey, full }: { activeKey: string; full?: boolean }) {
-  const { refIndex, goToDefinition } = useBuffEditor()
+  const { refIndex } = useBuffEditor()
   if (!refIndex) return null
 
   const refs = refIndex.referencedBy.get(activeKey)
@@ -397,24 +460,16 @@ function DependencyGraphSection({ activeKey, full }: { activeKey: string; full?:
     return <Text size={full ? 'sm' : '10px'} c="dimmed">无引用关系</Text>
   }
 
-  const fs = full ? 12 : 10
   const nodeFs = full ? '11px' : '9px'
-  const pad = full ? 8 : 3
 
   return (
     <Stack gap={full ? 12 : 6}>
-      <div style={{ display: 'flex', gap: full ? 16 : 8, alignItems: 'flex-start', fontSize: fs }}>
+      <div style={{ display: 'flex', gap: full ? 16 : 8, alignItems: 'flex-start' }}>
         {/* Incoming */}
         {inList.length > 0 && (
           <Stack gap={full ? 4 : 2} style={{ flex: 1, minWidth: 0 }}>
             <Text size={nodeFs} c="dimmed" ta="center" fw={600}>引用方 ({refs?.size ?? 0})</Text>
-            {inList.map(k => (
-              <UnstyledButton key={k} onClick={() => goToDefinition(k)} style={{ width: '100%' }}>
-                <Paper p={pad} style={{ fontSize: fs, textAlign: 'center' }}>
-                  <Text size={nodeFs} truncate title={k}>{k}</Text>
-                </Paper>
-              </UnstyledButton>
-            ))}
+            {inList.map(k => <GraphNode key={k} templateKey={k} full={full} />)}
           </Stack>
         )}
 
@@ -431,13 +486,7 @@ function DependencyGraphSection({ activeKey, full }: { activeKey: string; full?:
         {outList.length > 0 && (
           <Stack gap={full ? 4 : 2} style={{ flex: 1, minWidth: 0 }}>
             <Text size={nodeFs} c="dimmed" ta="center" fw={600}>依赖 ({deps?.size ?? 0})</Text>
-            {outList.map(k => (
-              <UnstyledButton key={k} onClick={() => goToDefinition(k)} style={{ width: '100%' }}>
-                <Paper p={pad} style={{ fontSize: fs, textAlign: 'center' }}>
-                  <Text size={nodeFs} truncate title={k}>{k}</Text>
-                </Paper>
-              </UnstyledButton>
-            ))}
+            {outList.map(k => <GraphNode key={k} templateKey={k} full={full} />)}
           </Stack>
         )}
       </div>
