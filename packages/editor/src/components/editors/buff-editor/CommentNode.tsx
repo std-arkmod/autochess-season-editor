@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, useState, useCallback, useRef, useEffect } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 
 export interface CommentNodeData {
@@ -43,6 +43,18 @@ export const CommentNode = memo(function CommentNode({ data, selected }: NodePro
     e.stopPropagation()
   }, [label])
 
+  // Native mousedown listener to prevent D3 drag from intercepting input text selection
+  const containerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') e.stopPropagation()
+    }
+    el.addEventListener('mousedown', handler)
+    return () => el.removeEventListener('mousedown', handler)
+  }, [])
+
   return (
     <>
       <NodeResizer
@@ -53,6 +65,7 @@ export const CommentNode = memo(function CommentNode({ data, selected }: NodePro
         handleStyle={{ width: 8, height: 8, background: 'rgba(255,255,255,0.4)', borderRadius: 2 }}
       />
       <div
+        ref={containerRef}
         style={{
           width: '100%',
           height: '100%',
@@ -67,7 +80,6 @@ export const CommentNode = memo(function CommentNode({ data, selected }: NodePro
       >
         {editing ? (
           <input
-            className="nodrag nopan"
             type="text"
             value={text}
             onChange={e => setText(e.target.value)}

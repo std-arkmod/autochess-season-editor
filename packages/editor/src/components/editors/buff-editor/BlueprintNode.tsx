@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useRef, useEffect } from 'react'
 import { Handle, Position, type NodeProps, useStore } from '@xyflow/react'
 import type { FlowNodeData } from './graphConversion'
 import { TREE_KEYS } from './constants'
@@ -91,8 +91,26 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
 
   const pinRowCount = Math.max(leftPins.length, rightPins.length)
 
+  // Native mousedown listener to stop propagation for input elements,
+  // preventing ReactFlow's D3 drag (which uses mousedown, not pointerdown)
+  // from intercepting text selection. Must be a native listener because
+  // React's synthetic events use delegation and fire too late.
+  const nodeRootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = nodeRootRef.current
+    if (!el) return
+    const handler = (e: MouseEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        e.stopPropagation()
+      }
+    }
+    el.addEventListener('mousedown', handler)
+    return () => el.removeEventListener('mousedown', handler)
+  }, [])
+
   return (
-    <div style={{
+    <div ref={nodeRootRef} style={{
       background: 'var(--mantine-color-dark-7, #1a1a2e)',
       borderRadius: 6,
       minWidth: 280,

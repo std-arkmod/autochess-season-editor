@@ -34,7 +34,6 @@ export function InlineField({ propKey, value, onChange, examples, parentKey }: P
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
         <TextInput
-          className="nodrag nopan"
           size="xs"
           value=""
           placeholder="null"
@@ -88,7 +87,6 @@ export function InlineField({ propKey, value, onChange, examples, parentKey }: P
     <Group gap={4} wrap="nowrap" align="center">
       <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
       <TextInput
-        className="nodrag nopan"
         size="xs"
         value={String(value)}
         onChange={e => onChange(e.currentTarget.value)}
@@ -137,7 +135,6 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
         <Autocomplete
-          className="nodrag nopan"
           size="xs"
           value={text}
           onChange={setText}
@@ -157,7 +154,6 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
     <Group gap={4} wrap="nowrap" align="center">
       <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
       <TextInput
-        className="nodrag nopan"
         size="xs"
         value={text}
         onChange={e => setText(e.currentTarget.value)}
@@ -185,7 +181,6 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
         <Autocomplete
-          className="nodrag nopan"
           size="xs"
           value={value}
           onChange={v => onChange(v)}
@@ -207,7 +202,6 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
     <Group gap={4} wrap="nowrap" align="center">
       <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
       <TextInput
-        className="nodrag nopan"
         size="xs"
         value={value}
         onChange={e => onChange(e.currentTarget.value)}
@@ -369,7 +363,6 @@ function InlineObject({ propKey, value, onChange }: { propKey: string; value: Re
           {showAddKey && (
             <Group gap={4}>
               <TextInput
-                className="nodrag nopan"
                 size="xs"
                 placeholder="新字段名"
                 value={newKeyInput}
