@@ -2,7 +2,7 @@ import { Stack, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import {
   IconLayoutDashboard, IconSwords, IconUsers, IconShield,
   IconShoppingCart, IconSkull, IconBolt, IconGitCompare,
-  IconCoins, IconSettings, IconStar, IconDatabase, IconUserCog, IconBinaryTree,
+  IconCoins, IconSettings, IconStar, IconDatabase,
 } from '@tabler/icons-react'
 import type { ActiveModule } from '../store/dataStore'
 
@@ -24,21 +24,15 @@ const navItems: NavItem[] = [
   { id: 'garrison', icon: <IconStar size={20} />, label: '特质' },
   { id: 'rewards', icon: <IconCoins size={20} />, label: '奖励' },
   { id: 'misc', icon: <IconDatabase size={20} />, label: '其他' },
-  { id: 'buffs', icon: <IconBinaryTree size={20} />, label: 'Buff' },
   { id: 'diff', icon: <IconGitCompare size={20} />, label: '对比' },
 ]
 
 interface Props {
   active: ActiveModule
   onChange: (m: ActiveModule) => void
-  isAdmin?: boolean
 }
 
-export function Sidebar({ active, onChange, isAdmin }: Props) {
-  const items = isAdmin
-    ? [...navItems, { id: 'admin' as ActiveModule, icon: <IconUserCog size={20} />, label: '管理' }]
-    : navItems
-
+export function Sidebar({ active, onChange }: Props) {
   return (
     <Stack
       gap={4}
@@ -51,7 +45,7 @@ export function Sidebar({ active, onChange, isAdmin }: Props) {
         background: 'var(--mantine-color-dark-8)',
       }}
     >
-      {items.map(item => (
+      {navItems.map(item => (
         <Tooltip key={item.id} label={item.label} position="right" withArrow>
           <UnstyledButton
             onClick={() => onChange(item.id)}

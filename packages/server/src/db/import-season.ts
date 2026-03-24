@@ -1,100 +1,97 @@
 /**
- * Import a season from a directory (same format as fsStore).
- * Usage: tsx src/db/import-season.ts <directory-path> [label]
+ * Import seasons from a JSON file containing AutoChessSeasonData.
+ *
+ * Supported formats:
+ *   1. activity_table.json — extracts all seasons from activity.AUTOCHESS_SEASON
+ *   2. A single AutoChessSeasonData object — imported as one season
+ *
+ * Usage: tsx src/db/import-season.ts <json-file> [label]
+ *   label is only used for format 2 (single season).
  */
-import { readFileSync, readdirSync, existsSync } from 'fs'
-import { join } from 'path'
+import { readFileSync } from 'fs'
 import { nanoid } from 'nanoid'
 import { db, schema } from './index.ts'
 import { eq, sql } from 'drizzle-orm'
 
-const DICT_FIELDS = [
-  'modeDataDict', 'bondInfoDict', 'charChessDataDict', 'charShopChessDatas',
-  'trapChessDataDict', 'trapShopChessDatas', 'effectInfoDataDict',
-  'effectBuffInfoDataDict', 'bossInfoDict', 'shopCharChessInfoData',
-  'garrisonDataDict', 'bandDataListDict', 'stageDatasDict',
-  'shopLevelDisplayDataDict', 'specialEnemyInfoDict', 'effectChoiceInfoDict',
-]
+/** Known top-level keys in AutoChessSeasonData */
+const SEASON_KEYS = new Set([
+  'modeDataDict', 'baseRewardDataList', 'bandDataListDict', 'charChessDataDict',
+  'chessNormalIdLookupDict', 'diyChessDict', 'shopLevelDataDict', 'shopLevelDisplayDataDict',
+  'charShopChessDatas', 'trapChessDataDict', 'trapShopChessDatas', 'stageDatasDict',
+  'battleDataDict', 'bondInfoDict', 'garrisonDataDict', 'effectInfoDataDict',
+  'effectBuffInfoDataDict', 'effectChoiceInfoDict', 'bossInfoDict', 'specialEnemyInfoDict',
+  'enemyInfoDict', 'specialEnemyRandomTypeDict', 'trainingNpcList', 'milestoneList',
+  'modeFactorInfo', 'difficultyFactorInfo', 'playerTitleDataDict', 'shopCharChessInfoData',
+  'constData',
+])
 
-function loadDirectory(dirPath: string): { label: string; data: Record<string, unknown> } {
-  const projectPath = join(dirPath, 'project.json')
-  if (!existsSync(projectPath)) {
-    throw new Error(`project.json not found in ${dirPath}`)
+function isSeasonData(obj: Record<string, unknown>): boolean {
+  return typeof obj.modeDataDict === 'object' && typeof obj.bondInfoDict === 'object'
+}
+
+function extractSeasons(raw: Record<string, unknown>): { label: string; data: Record<string, unknown> }[] {
+  // Format 1: activity_table.json → activity.AUTOCHESS_SEASON.{actXautochess}
+  const activity = raw.activity as Record<string, unknown> | undefined
+  const autochess = activity?.AUTOCHESS_SEASON as Record<string, Record<string, unknown>> | undefined
+  if (autochess) {
+    return Object.entries(autochess)
+      .filter(([, v]) => isSeasonData(v))
+      .map(([key, data]) => ({ label: key, data }))
   }
 
-  const project = JSON.parse(readFileSync(projectPath, 'utf-8'))
-  const label = project.label ?? 'Unnamed Season'
-  const constFields = project.constFields ?? {}
-
-  // Start with const fields
-  const data: Record<string, unknown> = { ...constFields }
-
-  // Load each dict field from subdirectories
-  for (const field of DICT_FIELDS) {
-    const subDir = join(dirPath, field)
-    if (!existsSync(subDir)) {
-      data[field] = {}
-      continue
-    }
-
-    const files = readdirSync(subDir).filter(f => f.endsWith('.json'))
-    const dict: Record<string, unknown> = {}
-
-    for (const file of files) {
-      const key = file.replace(/\.json$/, '')
-      const content = JSON.parse(readFileSync(join(subDir, file), 'utf-8'))
-      dict[key] = content
-    }
-
-    data[field] = dict
+  // Format 2: direct AutoChessSeasonData object
+  if (isSeasonData(raw)) {
+    return [{ label: 'Imported Season', data: raw }]
   }
 
-  return { label, data }
+  throw new Error('无法识别的 JSON 格式。支持 activity_table.json 或单个 AutoChessSeasonData 对象。')
 }
 
 async function main() {
-  const dirPath = process.argv[2]
-  if (!dirPath) {
-    console.error('Usage: tsx src/db/import-season.ts <directory-path> [label]')
+  const filePath = process.argv[2]
+  if (!filePath) {
+    console.error('Usage: tsx src/db/import-season.ts <json-file> [label]')
     process.exit(1)
   }
 
   const customLabel = process.argv[3]
 
-  console.log(`Loading season data from: ${dirPath}`)
-  const { label, data } = loadDirectory(dirPath)
-  const finalLabel = customLabel ?? label
+  console.log(`Reading: ${filePath}`)
+  const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, unknown>
+  const seasons = extractSeasons(raw)
+  console.log(`Found ${seasons.length} season(s)`)
 
-  // Find admin user to set as creator
+  // Find admin user
   const [admin] = await db.select().from(schema.users).where(eq(schema.users.role, 'admin')).limit(1)
   if (!admin) {
     console.error('No admin user found. Run db:seed first.')
     process.exit(1)
   }
 
-  const id = nanoid()
-  const now = new Date()
-
-  // Import as template by default (use --private flag for private season)
   const isTemplate = !process.argv.includes('--private')
 
-  await db.insert(schema.seasons).values({
-    id,
-    label: finalLabel,
-    data,
-    version: 1,
-    isTemplate: isTemplate ? 1 : 0,
-    ownerId: isTemplate ? null : admin.id,
-    createdBy: admin.id,
-    createdAt: now,
-    updatedAt: now,
-  })
+  for (const season of seasons) {
+    const label = seasons.length === 1 && customLabel ? customLabel : season.label
+    const id = nanoid()
+    const now = new Date()
 
-  console.log(`Imported as ${isTemplate ? 'template' : 'private season'}`)
+    await db.insert(schema.seasons).values({
+      id,
+      label,
+      data: season.data,
+      version: 1,
+      isTemplate: isTemplate ? 1 : 0,
+      ownerId: isTemplate ? null : admin.id,
+      createdBy: admin.id,
+      createdAt: now,
+      updatedAt: now,
+    })
 
-  // Verify data was written correctly
-  const [verify] = await db.select({ len: sql`length(data::text)` }).from(schema.seasons).where(eq(schema.seasons.id, id))
-  console.log(`Season "${finalLabel}" imported successfully (id: ${id}, data size: ${(verify as any)?.len ?? '?'} bytes)`)
+    const [verify] = await db.select({ len: sql`length(data::text)` }).from(schema.seasons).where(eq(schema.seasons.id, id))
+    console.log(`  ✓ "${label}" (id: ${id}, ${(verify as any)?.len ?? '?'} bytes) — ${isTemplate ? 'template' : 'private'}`)
+  }
+
+  console.log('Done.')
   process.exit(0)
 }
 

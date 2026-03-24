@@ -53,21 +53,22 @@ pnpm --filter @autochess-editor/server db:seed myuser mypassword
 
 ### 5. 导入赛季数据（模板）
 
-导入的数据默认作为**模板**（所有用户可见，需复制后才能编辑）：
+导入的数据默认作为**模板**（所有用户可见，需复制后才能编辑）。
+
+支持两种 JSON 格式：
+1. **activity_table.json** — 从游戏数据 `activity.AUTOCHESS_SEASON` 中自动提取所有赛季
+2. **单个 AutoChessSeasonData 对象** — 直接导入为一个赛季
 
 ```bash
-# 从本地目录导入为模板
-pnpm --filter @autochess-editor/server db:import <目录路径> [自定义名称]
+# 从 activity_table.json 导入（自动提取所有赛季）
+pnpm --filter @autochess-editor/server db:import /path/to/activity_table.json
 
-# 示例：从 GitHub 仓库导入
-git clone --depth 1 https://github.com/std-arkmod/autochess-season-o1.git /tmp/season-o1
-pnpm --filter @autochess-editor/server db:import /tmp/season-o1
+# 导入单个赛季数据并指定名称
+pnpm --filter @autochess-editor/server db:import /path/to/season.json "赛季名称"
 
 # 如需导入为私有赛季（而非模板），加 --private 标志：
-pnpm --filter @autochess-editor/server db:import /tmp/season-o1 "我的赛季" --private
+pnpm --filter @autochess-editor/server db:import /path/to/activity_table.json --private
 ```
-
-目录结构需包含 `project.json` 和各数据子目录（`modeDataDict/`、`bondInfoDict/` 等），每个子目录下为单条记录的 `.json` 文件。
 
 ### 6. 启动
 
@@ -143,7 +144,7 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS autochess_editor;"
 sudo -u postgres psql -c "CREATE DATABASE autochess_editor;"
 pnpm --filter @autochess-editor/server db:migrate
 pnpm --filter @autochess-editor/server db:seed
-pnpm --filter @autochess-editor/server db:import <目录路径>
+pnpm --filter @autochess-editor/server db:import /path/to/activity_table.json
 ```
 
 ---

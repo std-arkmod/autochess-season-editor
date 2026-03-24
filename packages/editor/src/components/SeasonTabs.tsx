@@ -34,6 +34,7 @@ import { api, type SeasonPermission, type AuthUser } from '../api/client'
 interface Props {
   store: DataStore
   currentUserId?: string
+  currentUserDisplayName?: string
 }
 
 const fieldLabelMap: Record<string, string> = {
@@ -99,7 +100,7 @@ function PermissionBadge({ role }: { role: string | null }) {
   )
 }
 
-export function SeasonTabs({ store, currentUserId }: Props) {
+export function SeasonTabs({ store, currentUserId, currentUserDisplayName }: Props) {
   const {
     seasons, serverSeasons, serverTemplates, activeSeasonId, setActiveSeasonId,
     addLocalSeason, uploadSeason, removeSeason, renameSeason, markClean,
@@ -129,6 +130,9 @@ export function SeasonTabs({ store, currentUserId }: Props) {
   const [allUsers, setAllUsers] = useState<Pick<AuthUser, 'id' | 'username' | 'displayName'>[]>([])
   const [shareUserId, setShareUserId] = useState<string | null>(null)
   const [shareRole, setShareRole] = useState<'editor' | 'viewer'>('editor')
+
+  // Fork template rename modal
+  const [forkModal, setForkModal] = useState<{ templateId: string; label: string } | null>(null)
 
   // 外部变更提示 Modal
   const [externalChangeSeasonId, setExternalChangeSeasonId] = useState<string | null>(null)
@@ -626,7 +630,7 @@ export function SeasonTabs({ store, currentUserId }: Props) {
                   leftSection={<IconTemplate size={14} />}
                   rightSection={
                     <Badge size="sm" variant="light" color="teal" style={{ cursor: 'pointer' }}
-                      onClick={e => { e.stopPropagation(); void forkTemplate(t.id) }}>
+                      onClick={e => { e.stopPropagation(); setForkModal({ templateId: t.id, label: `${t.label} (${currentUserDisplayName || 'My'})` }) }}>
                       复制
                     </Badge>
                   }
@@ -772,6 +776,38 @@ export function SeasonTabs({ store, currentUserId }: Props) {
             </Stack>
           )}
         </Stack>
+      </Modal>
+
+      {/* Fork模板重命名 Modal */}
+      <Modal opened={!!forkModal} onClose={() => setForkModal(null)} title="复制模板到私有赛季" size="sm">
+        {forkModal && (
+          <Stack gap="md">
+            <TextInput
+              label="赛季名称"
+              value={forkModal.label}
+              onChange={e => setForkModal({ ...forkModal, label: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && forkModal.label.trim()) {
+                  void forkTemplate(forkModal.templateId, forkModal.label.trim())
+                  setForkModal(null)
+                }
+              }}
+              autoFocus
+            />
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={() => setForkModal(null)}>取消</Button>
+              <Button
+                disabled={!forkModal.label.trim()}
+                onClick={() => {
+                  void forkTemplate(forkModal.templateId, forkModal.label.trim())
+                  setForkModal(null)
+                }}
+              >
+                复制
+              </Button>
+            </Group>
+          </Stack>
+        )}
       </Modal>
 
       {/* 外部变更提示 Modal */}

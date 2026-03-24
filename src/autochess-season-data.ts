@@ -28,20 +28,6 @@ export interface AutoChessSeasonData {
     playerTitleDataDict: PlayerTitleDataDict
     shopCharChessInfoData: { [key: string]: ShopCharChessInfoDatum[] }
     constData: ConstData
-    buffTemplates?: { [key: string]: BuffTemplate }
-}
-
-export interface BuffTemplate {
-    templateKey: string
-    effectKey: string
-    onEventPriority: string
-    eventToActions: { [event: string]: ActionNode[] }
-}
-
-export interface ActionNode {
-    $type: string
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    [key: string]: any
 }
 
 export interface BandDataListDict {

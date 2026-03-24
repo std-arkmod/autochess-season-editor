@@ -25,7 +25,6 @@ import { GarrisonEditor } from './components/editors/GarrisonEditor'
 import { RewardsEditor } from './components/editors/RewardsEditor'
 import { DiffViewer } from './components/editors/DiffViewer'
 import { MiscEditor } from './components/editors/MiscEditor'
-import { ScriptsEditor } from './components/editors/ScriptsEditor'
 import { BuffTemplateEditor } from './components/editors/BuffTemplateEditor'
 import { UserManagement } from './components/admin/UserManagement'
 import { EditHistoryPanel } from './components/EditHistoryPanel'
@@ -42,7 +41,6 @@ const moduleTitles: Record<string, string> = {
   garrison: '干员特质',
   rewards: '回合奖励与倍率',
   misc: '其他数据',
-  scripts: '脚本编辑',
   buffs: 'Buff 模板编辑',
   diff: '赛季数据对比',
   admin: '用户管理',
@@ -205,7 +203,6 @@ export default function App() {
       case 'garrison': return <GarrisonEditor store={store} />
       case 'rewards': return <RewardsEditor store={store} />
       case 'misc': return <MiscEditor store={store} />
-      case 'scripts': return <ScriptsEditor store={store} />
       case 'buffs': return <BuffTemplateEditor store={store} />
       case 'diff': return <DiffViewer store={store} />
       case 'admin': return <UserManagement />
@@ -305,7 +302,7 @@ export default function App() {
 
       {/* Season Tabs */}
       <Box style={{ flexShrink: 0, background: 'var(--mantine-color-dark-7)' }}>
-        <SeasonTabs store={store} currentUserId={auth.user?.id} />
+        <SeasonTabs store={store} currentUserId={auth.user?.id} currentUserDisplayName={auth.user?.displayName} />
       </Box>
 
       {/* Body */}
