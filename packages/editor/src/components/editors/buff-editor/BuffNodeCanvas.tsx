@@ -75,13 +75,19 @@ interface Props {
   onReactFlowReady?: (api: ReactFlowApi) => void
   onCutEdges?: (edgeIds: string[]) => void
   onCreateComment?: (position: { x: number; y: number }, size: { width: number; height: number }) => void
+  onConnectEndEmpty?: (info: {
+    nodeId: string
+    handleId: string | null
+    handleType: 'source' | 'target' | null
+    screenPosition: { x: number; y: number }
+  }) => void
 }
 
 function BuffNodeCanvasInner({
   nodes, edges, edgeStyle, activeTool,
   onNodesChange, onEdgesChange, onNodeSelect, onDrop,
   onPaneContextMenu, onNodeContextMenu, onEdgeContextMenu, onSelectionContextMenu,
-  onSelectionUpdate, onReactFlowReady, onCutEdges, onCreateComment,
+  onSelectionUpdate, onReactFlowReady, onCutEdges, onCreateComment, onConnectEndEmpty,
 }: Props) {
   const reactFlow = useReactFlow()
 
@@ -130,6 +136,19 @@ function BuffNodeCanvasInner({
     if (connection.source === connection.target) {
       return { valid: false, reason: '不能连接到自身' }
     }
+
+    // Handle type validation
+    const srcHandle = connection.sourceHandle ?? ''
+    const tgtHandle = connection.targetHandle ?? ''
+    const isSrcCondition = srcHandle === 'bool_out'
+    const isTgtCondition = tgtHandle === 'condition' || tgtHandle.startsWith('condition_')
+    if (isSrcCondition && !isTgtCondition) {
+      return { valid: false, reason: '条件输出只能连接到条件输入' }
+    }
+    if (!isSrcCondition && isTgtCondition) {
+      return { valid: false, reason: '条件输入只能接收条件输出' }
+    }
+
     // BFS from connection.target to detect cycle
     const visited = new Set<string>()
     const queue = [connection.target]
@@ -152,8 +171,9 @@ function BuffNodeCanvasInner({
     return validateConnection(connection).valid
   }, [validateConnection])
 
-  // Show toast when a connection attempt ends on an invalid target
-  const handleConnectEnd = useCallback((_event: MouseEvent | TouchEvent, state: { isValid?: boolean | null; fromNode?: { id: string } | null; toNode?: { id: string } | null; fromHandle?: { id?: string | null } | null; toHandle?: { id?: string | null } | null }) => {
+  // Show toast when a connection attempt ends on an invalid target,
+  // or open node search when dropped on empty space
+  const handleConnectEnd = useCallback((_event: MouseEvent | TouchEvent, state: { isValid?: boolean | null; fromNode?: { id: string } | null; toNode?: { id: string } | null; fromHandle?: { id?: string | null; type?: string | null } | null; toHandle?: { id?: string | null } | null }) => {
     if (state.isValid === false && state.fromNode && state.toNode) {
       const { reason } = validateConnection({
         source: state.fromNode.id,
@@ -162,8 +182,19 @@ function BuffNodeCanvasInner({
         targetHandle: state.toHandle?.id ?? null,
       })
       if (reason) showConnToast(reason)
+    } else if (!state.toNode && state.fromNode && onConnectEndEmpty) {
+      // Dropped on empty space — trigger node creation menu
+      const pos = _event instanceof MouseEvent
+        ? { x: _event.clientX, y: _event.clientY }
+        : { x: (_event as TouchEvent).changedTouches[0].clientX, y: (_event as TouchEvent).changedTouches[0].clientY }
+      onConnectEndEmpty({
+        nodeId: state.fromNode.id,
+        handleId: state.fromHandle?.id ?? null,
+        handleType: (state.fromHandle?.type as 'source' | 'target') ?? null,
+        screenPosition: pos,
+      })
     }
-  }, [validateConnection, showConnToast])
+  }, [validateConnection, showConnToast, onConnectEndEmpty])
 
   const handleConnect: OnConnect = useCallback(
     (connection: Connection) => {

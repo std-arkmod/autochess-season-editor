@@ -15,6 +15,7 @@ import { BuffReferencePanel } from './buff-editor/BuffReferencePanel'
 import { BuffEditorContext, type BuffEditorContextValue } from './buff-editor/BuffEditorContext'
 import { BuffEditorToolbar } from './buff-editor/BuffEditorToolbar'
 import { CanvasContextMenu } from './buff-editor/CanvasContextMenu'
+import { NodeSearchMenu } from './buff-editor/NodeSearchMenu'
 import { useCanvasCommands, type ContextMenuType } from './buff-editor/useCanvasCommands'
 import { buildBuffIndex, type BuffReferenceIndex } from './buff-editor/buffReferenceIndex'
 import { mergeUserTemplateKeys } from './buff-editor/enumRegistry'
@@ -125,6 +126,17 @@ export function BuffTemplateEditor({ store }: Props) {
     type: ContextMenuType
     position: { x: number; y: number }
     targetId?: string
+  } | null>(null)
+
+  // Node search menu (right-click on pane / connection drop on empty)
+  const [nodeSearchMenu, setNodeSearchMenu] = useState<{
+    position: { x: number; y: number }
+    flowPosition: { x: number; y: number }
+    pendingConnection?: {
+      nodeId: string
+      handleId: string | null
+      handleType: 'source' | 'target' | null
+    }
   } | null>(null)
 
   // ReactFlow API ref + canvas container ref for viewport center
@@ -536,8 +548,19 @@ export function BuffTemplateEditor({ store }: Props) {
 
   // ── Context menu handlers ──
   const handlePaneContextMenu = useCallback((e: React.MouseEvent) => {
-    setContextMenu({ type: 'pane', position: { x: e.clientX, y: e.clientY } })
-  }, [])
+    if (isReadOnly) {
+      setContextMenu({ type: 'pane', position: { x: e.clientX, y: e.clientY } })
+      return
+    }
+    // In edit mode, open node search menu (like Blender/UE)
+    const api = reactFlowApiRef.current
+    if (!api) return
+    const flowPos = api.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+    setNodeSearchMenu({
+      position: { x: e.clientX, y: e.clientY },
+      flowPosition: flowPos,
+    })
+  }, [isReadOnly])
 
   const handleNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
     // If multiple nodes selected and right-clicked node is in selection, show selection menu
@@ -561,6 +584,76 @@ export function BuffTemplateEditor({ store }: Props) {
   }, [])
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  // ── Connection drop on empty → open node search with pending connection ──
+  const handleConnectEndEmpty = useCallback((info: {
+    nodeId: string; handleId: string | null
+    handleType: 'source' | 'target' | null; screenPosition: { x: number; y: number }
+  }) => {
+    if (isReadOnly) return
+    const api = reactFlowApiRef.current
+    if (!api) return
+    const flowPos = api.screenToFlowPosition(info.screenPosition)
+    setNodeSearchMenu({
+      position: info.screenPosition,
+      flowPosition: flowPos,
+      pendingConnection: {
+        nodeId: info.nodeId,
+        handleId: info.handleId,
+        handleType: info.handleType,
+      },
+    })
+  }, [isReadOnly])
+
+  // ── Node selected from search menu → create node + optional auto-connect ──
+  const handleNodeSearchSelect = useCallback((schema: NodeSchema) => {
+    if (isReadOnly || !nodeSearchMenu) return
+    pushUndo()
+    const nodeId = `action_${Date.now()}`
+    const position = nodeSearchMenu.flowPosition
+
+    setNodes(prev => [...prev, {
+      id: nodeId, type: 'blueprint', position,
+      data: {
+        label: schema.shortName, nodeType: schema.type,
+        category: schema.category, color: '',
+        actionNode: buildDefaultNode(schema.type),
+        treePath: `new_${Date.now()}`,
+      } as FlowNodeData,
+    }])
+
+    // Auto-connect if triggered from a dangling connection
+    if (nodeSearchMenu.pendingConnection) {
+      const { nodeId: fromNodeId, handleId: fromHandleId, handleType } = nodeSearchMenu.pendingConnection
+      if (handleType === 'target') {
+        // Dragged backwards from an input → new node's output connects to that input
+        const sourceHandle = fromHandleId?.startsWith('condition') ? 'bool_out' : 'next'
+        setEdges(prev => {
+          const filtered = prev.filter(e =>
+            !(e.target === fromNodeId && e.targetHandle === fromHandleId),
+          )
+          return [...filtered, {
+            id: `edge_${Date.now()}`, source: nodeId, sourceHandle,
+            target: fromNodeId, targetHandle: fromHandleId, type: edgeStyle,
+          }]
+        })
+      } else {
+        // Normal: from output → new node's input
+        setEdges(prev => {
+          const filtered = prev.filter(e =>
+            !(e.source === fromNodeId && e.sourceHandle === fromHandleId),
+          )
+          return [...filtered, {
+            id: `edge_${Date.now()}`, source: fromNodeId, sourceHandle: fromHandleId,
+            target: nodeId, targetHandle: 'in', type: edgeStyle,
+          }]
+        })
+      }
+    }
+
+    setNodeSearchMenu(null)
+    debouncedSave()
+  }, [isReadOnly, nodeSearchMenu, pushUndo, edgeStyle, debouncedSave])
 
   const goToDefinition = useCallback((templateKey: string) => {
     if (templateKey in buffTemplates) {
@@ -710,6 +803,7 @@ export function BuffTemplateEditor({ store }: Props) {
               onReactFlowReady={handleReactFlowReady}
               onCutEdges={handleCutEdges}
               onCreateComment={handleCreateComment}
+              onConnectEndEmpty={handleConnectEndEmpty}
             />
           ) : (
             <Stack align="center" justify="center" style={{ height: '100%' }}>
@@ -753,6 +847,20 @@ export function BuffTemplateEditor({ store }: Props) {
         onClose={closeContextMenu}
         isReadOnly={isReadOnly}
       />
+
+      {/* Node search menu (pane right-click / connection drop on empty) */}
+      {nodeSearchMenu && (
+        <NodeSearchMenu
+          position={nodeSearchMenu.position}
+          opened
+          onClose={() => setNodeSearchMenu(null)}
+          onSelect={handleNodeSearchSelect}
+          connectionFilter={nodeSearchMenu.pendingConnection ? {
+            handleId: nodeSearchMenu.pendingConnection.handleId,
+            handleType: nodeSearchMenu.pendingConnection.handleType,
+          } : undefined}
+        />
+      )}
     </Box>
     </BuffEditorContext.Provider>
   )
