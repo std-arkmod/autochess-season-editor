@@ -118,7 +118,7 @@ function BuffNodeCanvasInner({
 
   // ── Connection validation ──
   const [connToast, setConnToast] = useState<string | null>(null)
-  const connToastTimer = useRef<ReturnType<typeof setTimeout>>()
+  const connToastTimer = useRef<ReturnType<typeof setTimeout>>(null)
 
   const showConnToast = useCallback((msg: string) => {
     clearTimeout(connToastTimer.current)
