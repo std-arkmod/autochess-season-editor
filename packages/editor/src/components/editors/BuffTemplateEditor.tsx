@@ -87,6 +87,7 @@ function buildEventOptions(mode: 'cn' | 'raw' | 'rawOnly') {
 }
 
 const MAX_UNDO = 30
+const CLIPBOARD_MARKER = 'buff-editor-clipboard'
 interface Snapshot { nodes: Node[]; edges: Edge[] }
 
 // Module-level cache so data survives component remounts (tab switching)
@@ -260,12 +261,32 @@ export function BuffTemplateEditor({ store }: Props) {
     }
     pasteCountRef.current = 0
     setHasClipboard(true)
+    // Write to system clipboard for cross-page paste
+    navigator.clipboard.writeText(JSON.stringify({
+      __type: CLIPBOARD_MARKER,
+      nodes: clipboardRef.current.nodes,
+      edges: clipboardRef.current.edges,
+    })).catch(() => {})
   }, [selectedNodeIds])
 
-  const pasteNodes = useCallback(() => {
-    if (!clipboardRef.current || isReadOnly) return
+  const pasteNodes = useCallback(async () => {
+    if (isReadOnly) return
+    // Try system clipboard first (enables cross-page paste)
+    let clipData: { nodes: Node[]; edges: Edge[] } | null = null
+    try {
+      const text = await navigator.clipboard.readText()
+      const parsed = JSON.parse(text)
+      if (parsed?.__type === CLIPBOARD_MARKER && Array.isArray(parsed.nodes)) {
+        clipData = { nodes: parsed.nodes, edges: parsed.edges ?? [] }
+      }
+    } catch {
+      // System clipboard unavailable or doesn't contain our data
+    }
+    // Fall back to local ref
+    if (!clipData) clipData = clipboardRef.current
+    if (!clipData) return
     pushUndo()
-    const { nodes: clipNodes, edges: clipEdges } = clipboardRef.current
+    const { nodes: clipNodes, edges: clipEdges } = clipData
     const idMap = new Map<string, string>()
     const now = Date.now()
     pasteCountRef.current++

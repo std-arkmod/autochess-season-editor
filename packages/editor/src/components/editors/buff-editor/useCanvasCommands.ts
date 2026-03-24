@@ -82,7 +82,7 @@ export function useCanvasCommands(props: CanvasCommandsProps) {
       {
         id: 'paste', label: '粘贴', shortcut: 'Ctrl+V', icon: 'IconClipboard',
         execute: props.pasteNodes,
-        enabled: () => hasClipboard && !isReadOnly,
+        enabled: () => !isReadOnly,
       },
       {
         id: 'cut', label: '剪切', shortcut: 'Ctrl+X', icon: 'IconScissors',
