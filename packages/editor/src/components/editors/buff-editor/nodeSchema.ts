@@ -1,3 +1,5 @@
+import type { ActionNode } from '@autochess-editor/shared'
+
 export interface PropertySchema {
   type: 'string' | 'number' | 'boolean' | 'null' | 'array' | 'object'
   defaultValue: unknown
@@ -97,13 +99,13 @@ export function getSchemasByCategory(): Map<string, NodeSchema[]> {
  * If a canonical instance exists (from loadGameData scan), deep-clone it
  * and sanitise arrays/child nodes. Otherwise fall back to schema inference.
  */
-export function buildDefaultNode(rawType: string): Record<string, unknown> {
+export function buildDefaultNode(rawType: string): ActionNode {
   const key = normalizeType(rawType)
   const canonical = canonicalMap.get(key)
 
   if (canonical) {
     // Deep clone the canonical instance
-    const node: Record<string, unknown> = JSON.parse(JSON.stringify(canonical))
+    const node = JSON.parse(JSON.stringify(canonical)) as ActionNode
     // Ensure $type matches the requested rawType (may differ in casing)
     node.$type = rawType
     // Sanitise: clear tree-structure children so user starts with empty branches
@@ -113,7 +115,7 @@ export function buildDefaultNode(rawType: string): Record<string, unknown> {
 
   // Fallback: construct from schema (for unknown types / custom $type)
   const schema = getSchema(rawType)
-  const node: Record<string, unknown> = { $type: rawType }
+  const node: ActionNode = { $type: rawType }
   for (const [k, prop] of Object.entries(schema.properties)) {
     node[k] = prop.defaultValue
   }

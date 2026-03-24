@@ -523,7 +523,7 @@ export function BuffTemplateEditor({ store }: Props) {
     nodeType: schema.type,
     category: schema.category,
     color: '',
-    actionNode: buildDefaultNode(schema.type),
+    actionNode: buildDefaultNode(schema.type) as FlowNodeData['actionNode'],
     treePath: `new_${Date.now()}`,
   }), [])
 
