@@ -24,7 +24,25 @@ import { BlueprintNode } from './BlueprintNode'
 import { CommentNode } from './CommentNode'
 import { KnifeToolOverlay } from './KnifeToolOverlay'
 import { CommentToolOverlay } from './CommentToolOverlay'
+import type { ConnectionLineComponentProps } from '@xyflow/react'
 import type { MouseTool } from './mouseTools'
+
+function ConnectionLine({ fromX, fromY, toX, toY, connectionStatus }: ConnectionLineComponentProps) {
+  const isInvalid = connectionStatus === 'invalid'
+  const color = isInvalid ? '#e74c3c' : '#ccc'
+  return (
+    <g>
+      <path
+        fill="none"
+        stroke={color}
+        strokeWidth={isInvalid ? 2.5 : 1.5}
+        strokeDasharray={isInvalid ? '6 3' : undefined}
+        d={`M${fromX},${fromY} C${fromX + 80},${fromY} ${toX - 80},${toY} ${toX},${toY}`}
+      />
+      <circle cx={toX} cy={toY} r={4} fill={color} />
+    </g>
+  )
+}
 
 const nodeTypes = {
   blueprint: BlueprintNode,
@@ -98,14 +116,57 @@ function BuffNodeCanvasInner({
     [edges, onEdgesChange],
   )
 
-  // ── Connection validation: no self-loops ──
-  const isValidConnection = useCallback((connection: Connection | Edge) => {
-    return connection.source !== connection.target
+  // ── Connection validation ──
+  const [connToast, setConnToast] = useState<string | null>(null)
+  const connToastTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  const showConnToast = useCallback((msg: string) => {
+    clearTimeout(connToastTimer.current)
+    setConnToast(msg)
+    connToastTimer.current = setTimeout(() => setConnToast(null), 2500)
   }, [])
+
+  const validateConnection = useCallback((connection: Connection | Edge): { valid: boolean; reason?: string } => {
+    if (connection.source === connection.target) {
+      return { valid: false, reason: '不能连接到自身' }
+    }
+    // BFS from connection.target to detect cycle
+    const visited = new Set<string>()
+    const queue = [connection.target]
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!
+      if (nodeId === connection.source) {
+        return { valid: false, reason: '不能形成回环' }
+      }
+      if (visited.has(nodeId)) continue
+      visited.add(nodeId)
+      for (const e of edges) {
+        if (e.source === nodeId) queue.push(e.target)
+      }
+    }
+    return { valid: true }
+  }, [edges])
+
+  // Visual validation — controls connectionStatus for line color (red on invalid)
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    return validateConnection(connection).valid
+  }, [validateConnection])
+
+  // Show toast when a connection attempt ends on an invalid target
+  const handleConnectEnd = useCallback((_event: MouseEvent | TouchEvent, state: { isValid?: boolean | null; fromNode?: { id: string } | null; toNode?: { id: string } | null; fromHandle?: { id?: string | null } | null; toHandle?: { id?: string | null } | null }) => {
+    if (state.isValid === false && state.fromNode && state.toNode) {
+      const { reason } = validateConnection({
+        source: state.fromNode.id,
+        target: state.toNode.id,
+        sourceHandle: state.fromHandle?.id ?? null,
+        targetHandle: state.toHandle?.id ?? null,
+      })
+      if (reason) showConnToast(reason)
+    }
+  }, [validateConnection, showConnToast])
 
   const handleConnect: OnConnect = useCallback(
     (connection: Connection) => {
-      if (connection.source === connection.target) return
       // One-to-one: remove any existing edge on the same source handle or target handle
       const filtered = edges.filter(e => {
         if (e.source === connection.source && e.sourceHandle === connection.sourceHandle) return false
@@ -115,7 +176,7 @@ function BuffNodeCanvasInner({
       const updated = addEdge({ ...connection, type: edgeStyle }, filtered)
       onEdgesChange(updated)
     },
-    [edges, onEdgesChange, edgeStyle],
+    [edges, onEdgesChange, edgeStyle, validateConnection, showConnToast],
   )
 
   // ── Edge reconnection: drag edge endpoint to re-route ──
@@ -127,7 +188,8 @@ function BuffNodeCanvasInner({
 
   const handleReconnect: OnReconnect = useCallback(
     (oldEdge, newConnection) => {
-      if (newConnection.source === newConnection.target) return
+      const { valid, reason } = validateConnection(newConnection)
+      if (!valid) { if (reason) showConnToast(reason); return }
       reconnectSuccessful.current = true
       // Remove old edge + any existing edge on the new handle (one-to-one)
       const without = edges.filter(e => {
@@ -139,7 +201,7 @@ function BuffNodeCanvasInner({
       const updated = addEdge({ ...newConnection, type: edgeStyle }, without)
       onEdgesChange(updated)
     },
-    [edges, onEdgesChange, edgeStyle],
+    [edges, onEdgesChange, edgeStyle, validateConnection, showConnToast],
   )
 
   const handleReconnectEnd = useCallback(
@@ -285,7 +347,9 @@ function BuffNodeCanvasInner({
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
+        onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}
+        connectionLineComponent={ConnectionLine}
         onReconnect={handleReconnect}
         onReconnectStart={handleReconnectStart}
         onReconnectEnd={handleReconnectEnd}
@@ -322,6 +386,19 @@ function BuffNodeCanvasInner({
       )}
       {activeTool === 'comment' && onCreateComment && (
         <CommentToolOverlay onCreateComment={onCreateComment} />
+      )}
+
+      {/* Connection rejection toast */}
+      {connToast && (
+        <div style={{
+          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(220, 53, 69, 0.92)', color: '#fff',
+          padding: '6px 16px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+          pointerEvents: 'none', zIndex: 50, whiteSpace: 'nowrap',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        }}>
+          {connToast}
+        </div>
       )}
     </div>
   )
