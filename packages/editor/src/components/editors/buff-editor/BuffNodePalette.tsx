@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { Stack, TextInput, Text, Paper, Group, Badge, Accordion } from '@mantine/core'
 import { IconSearch, IconPlus } from '@tabler/icons-react'
 import { getAllSchemas, getSchemasByCategory, categoryLabels, type NodeSchema } from './nodeSchema'
+import { nodeNames } from './buffEditorI18n'
 
 const PAGE_SIZE = 60
 
@@ -22,7 +23,8 @@ export function BuffNodePalette({ onAddNode }: Props) {
     const q = search.toLowerCase()
     return allSchemas.filter(s =>
       s.shortName.toLowerCase().includes(q) ||
-      s.type.toLowerCase().includes(q)
+      s.type.toLowerCase().includes(q) ||
+      (nodeNames[s.shortName] ?? '').includes(q)
     )
   }, [search, allSchemas])
 
@@ -76,7 +78,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
           background: categoryLabels[s.category] ? undefined : '#7f8c8d',
           flexShrink: 0,
         }} />
-        <Text size="10px" truncate style={{ flex: 1 }}>{s.shortName}</Text>
+        <Text size="10px" truncate style={{ flex: 1 }} title={s.shortName}>{nodeNames[s.shortName] ?? s.shortName}</Text>
         {s.instanceCount > 0 && (
           <Text size="9px" c="dimmed">{s.instanceCount}</Text>
         )}

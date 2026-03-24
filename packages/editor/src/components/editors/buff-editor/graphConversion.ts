@@ -1,6 +1,7 @@
 import type { Node, Edge } from '@xyflow/react'
 import type { BuffTemplate, ActionNode } from '@autochess-editor/shared'
 import { getSchema } from './nodeSchema'
+import { eventLabels } from './buffEditorI18n'
 
 export interface FlowNodeData extends Record<string, unknown> {
   label: string
@@ -55,7 +56,7 @@ export function treeToGraph(template: BuffTemplate): { nodes: Node[]; edges: Edg
       type: 'blueprint',
       position: { x: 0, y: eventY },
       data: {
-        label: eventType,
+        label: eventLabels[eventType] ?? eventType,
         nodeType: 'event_trigger',
         category: 'event',
         color: '#2c3e50',

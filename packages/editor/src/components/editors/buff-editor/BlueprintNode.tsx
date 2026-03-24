@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps, useReactFlow } from '@xyflow/react'
 import type { FlowNodeData } from './graphConversion'
 import { getSchema, categoryColors } from './nodeSchema'
 import { InlineField } from './InlineField'
+import { nodeNames, eventLabels } from './buffEditorI18n'
 
 const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
 
@@ -87,7 +88,9 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <span>{isEvent ? d.label : schema.shortName}</span>
+        <span title={isEvent ? (d.label as string) : schema.shortName}>
+          {isEvent ? (eventLabels[d.label as string] ?? d.label) : (nodeNames[schema.shortName] ?? schema.shortName)}
+        </span>
         <span style={{ fontSize: 9, opacity: 0.6 }}>{schema.category}</span>
       </div>
 

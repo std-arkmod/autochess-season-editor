@@ -15,7 +15,7 @@ export interface NodeSchema {
   instanceCount: number
 }
 
-function normalizeType(raw: string): string {
+export function normalizeType(raw: string): string {
   return raw.replace(/, Assembly-CSharp$/i, '').replace(/\+/g, '.')
 }
 
@@ -39,6 +39,8 @@ function inferCategory(name: string): string {
   if (/^act\d+side/i.test(n)) return 'stage_specific'
   return 'other'
 }
+
+import { collectPropertyValue, collectNestedValues, finalizeEnums } from './enumRegistry'
 
 const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
 const MAX_EXAMPLES = 3
@@ -172,6 +174,7 @@ export async function loadGameData(
     }
   }
 
+  finalizeEnums(new Set(Object.keys(templates)))
   _loaded = true
   onProgress({ phase: 'done', percent: 100, detail: `完成：${schemaMap.size} 种节点类型` })
   return templates
@@ -205,6 +208,11 @@ function walkNode(node: Record<string, unknown>) {
 
   for (const [k, v] of Object.entries(node)) {
     if (TREE_KEYS.has(k)) continue
+    collectPropertyValue(k, v)
+    // Recurse into nested objects to collect their inner field values
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      collectNestedValues(v as Record<string, unknown>)
+    }
     if (!schema.properties[k]) {
       const ptype = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v === 'object' ? 'object' : typeof v as PropertySchema['type']
       const isPrimitive = v === null || typeof v !== 'object'

@@ -1,15 +1,20 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { Box, Text, Group, Select, ActionIcon, Tooltip, Stack, Progress, SegmentedControl, Loader } from '@mantine/core'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { Box, Text, Group, Select, ActionIcon, Tooltip, Stack, Progress, SegmentedControl, Loader, Switch } from '@mantine/core'
 import { IconLayoutAlignBottom, IconArrowBackUp } from '@tabler/icons-react'
 import type { Node, Edge } from '@xyflow/react'
 import type { BuffTemplate } from '@autochess-editor/shared'
 import type { DataStore } from '../../store/dataStore'
 import { treeToGraph, graphToTree, type FlowNodeData } from './buff-editor/graphConversion'
 import { autoLayout } from './buff-editor/layoutEngine'
-import { getSchema, buildDefaultNode, loadGameData, type NodeSchema } from './buff-editor/nodeSchema'
+import { getSchema, buildDefaultNode, loadGameData, normalizeType, type NodeSchema } from './buff-editor/nodeSchema'
 import { BuffNodeCanvas, type EdgeStyle } from './buff-editor/BuffNodeCanvas'
 import { BuffTemplateList } from './buff-editor/BuffTemplateList'
 import { BuffNodePalette } from './buff-editor/BuffNodePalette'
+import { BuffReferencePanel } from './buff-editor/BuffReferencePanel'
+import { BuffEditorContext, type BuffEditorContextValue } from './buff-editor/BuffEditorContext'
+import { buildBuffIndex, type BuffReferenceIndex } from './buff-editor/buffReferenceIndex'
+import { mergeUserTemplateKeys } from './buff-editor/enumRegistry'
+import { eventLabels } from './buff-editor/buffEditorI18n'
 
 interface Props {
   store: DataStore
@@ -68,7 +73,7 @@ const EVENT_OPTIONS = (() => {
   }
   return Array.from(groups.entries()).map(([group, items]) => ({
     group,
-    items: items.map(e => ({ value: e, label: e })),
+    items: items.map(e => ({ value: e, label: eventLabels[e] ?? e })),
   }))
 })()
 
@@ -77,12 +82,17 @@ interface Snapshot { nodes: Node[]; edges: Edge[] }
 
 // Module-level cache so data survives component remounts (tab switching)
 let _cachedRefTemplates: Record<string, BuffTemplate> | null = null
+let _cachedRefIndex: BuffReferenceIndex | null = null
 let _loadingPromise: Promise<unknown> | null = null
 
 export function BuffTemplateEditor({ store }: Props) {
   const { activeSeason, activeSeasonId, updateSeason } = store
   const data = activeSeason?.data
   const buffTemplates: Record<string, BuffTemplate> = (data as any)?.buffTemplates ?? {}
+
+  // Keep enum registry in sync with user's template keys
+  const userTemplateKeys = useMemo(() => Object.keys(buffTemplates), [buffTemplates])
+  useEffect(() => { mergeUserTemplateKeys(userTemplateKeys) }, [userTemplateKeys])
 
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [listMode, setListMode] = useState<'user' | 'ref'>('user')
@@ -91,8 +101,13 @@ export function BuffTemplateEditor({ store }: Props) {
   const [edgeStyle, setEdgeStyle] = useState<EdgeStyle>('default')
   const [isReadOnly, setIsReadOnly] = useState(false)
 
+  const [rightPanel, setRightPanel] = useState<'palette' | 'references'>('palette')
+  const [selectedNodeType, setSelectedNodeType] = useState<string | null>(null)
+  const [showEnumLabels, setShowEnumLabels] = useState(true)
+
   // Game data + schema loading
   const [refTemplates, setRefTemplates] = useState<Record<string, BuffTemplate> | null>(_cachedRefTemplates)
+  const [refIndex, setRefIndex] = useState<BuffReferenceIndex | null>(_cachedRefIndex)
   const [loadingPhase, setLoadingPhase] = useState<string | null>(null)
   const [loadingPercent, setLoadingPercent] = useState(0)
   const [loadingDetail, setLoadingDetail] = useState('')
@@ -102,7 +117,10 @@ export function BuffTemplateEditor({ store }: Props) {
     if (_cachedRefTemplates || _loadingPromise) {
       // Already loaded or in progress
       if (_loadingPromise) {
-        _loadingPromise.then(t => setRefTemplates(t as Record<string, BuffTemplate>))
+        _loadingPromise.then(t => {
+          setRefTemplates(t as Record<string, BuffTemplate>)
+          if (_cachedRefIndex) setRefIndex(_cachedRefIndex)
+        })
       }
       return
     }
@@ -114,6 +132,10 @@ export function BuffTemplateEditor({ store }: Props) {
     }).then(templates => {
       _cachedRefTemplates = templates as Record<string, BuffTemplate>
       setRefTemplates(_cachedRefTemplates)
+      // Build reference index in background
+      const idx = buildBuffIndex(_cachedRefTemplates)
+      _cachedRefIndex = idx
+      setRefIndex(idx)
       return _cachedRefTemplates
     }).catch(err => {
       console.error('Failed to load game data:', err)
@@ -227,7 +249,7 @@ export function BuffTemplateEditor({ store }: Props) {
     setNodes(prev => [...prev, {
       id: `trigger_${Date.now()}`, type: 'blueprint',
       position: { x: 50, y: nodesRef.current.length * 100 + 50 },
-      data: { label: eventType, nodeType: 'event_trigger', category: 'event', color: '#2c3e50', eventType, isEventTrigger: true, treePath: eventType } as FlowNodeData,
+      data: { label: eventLabels[eventType] ?? eventType, nodeType: 'event_trigger', category: 'event', color: '#2c3e50', eventType, isEventTrigger: true, treePath: eventType } as FlowNodeData,
     }])
     debouncedSave()
   }, [activeKey, isReadOnly, debouncedSave, pushUndo])
@@ -257,11 +279,43 @@ export function BuffTemplateEditor({ store }: Props) {
     pushUndo(); setNodes(autoLayout(nodesRef.current, edgesRef.current))
   }, [pushUndo])
 
+  const handleNodeSelect = useCallback((nodeId: string | null) => {
+    if (!nodeId) { setSelectedNodeType(null); return }
+    const node = nodesRef.current.find(n => n.id === nodeId)
+    if (!node) return
+    const d = node.data as FlowNodeData
+    if (d.nodeType && d.nodeType !== 'event_trigger') {
+      const short = normalizeType(d.nodeType).split(/[.+]/).pop() ?? d.nodeType
+      setSelectedNodeType(short)
+    }
+  }, [])
+
+  const goToDefinition = useCallback((templateKey: string) => {
+    // Switch to ref list if the template is a reference template
+    if (templateKey in buffTemplates) {
+      setListMode('user')
+    } else if (refTemplates && templateKey in refTemplates) {
+      setListMode('ref')
+    }
+    selectTemplate(templateKey)
+    setRightPanel('references')
+  }, [buffTemplates, refTemplates, selectTemplate])
+
+  const contextValue = useMemo<BuffEditorContextValue>(() => ({
+    goToDefinition,
+    refIndex,
+    refTemplates,
+    activeKey,
+    selectedNodeType,
+    showEnumLabels,
+  }), [goToDefinition, refIndex, refTemplates, activeKey, selectedNodeType, showEnumLabels])
+
   const displayedTemplates = listMode === 'ref' ? (refTemplates ?? {}) : buffTemplates
 
   const noSeason = !activeSeason
 
   return (
+    <BuffEditorContext.Provider value={contextValue}>
     <Box style={{ display: 'flex', height: '100%', overflow: 'hidden', position: 'relative' }}>
       {/* ── Loading overlay ── */}
       {loadingPhase && (
@@ -366,6 +420,12 @@ export function BuffTemplateEditor({ store }: Props) {
               ]}
               style={{ width: 110 }} allowDeselect={false}
             />
+            <Tooltip label="显示/隐藏枚举中文翻译">
+              <Group gap={4} wrap="nowrap" style={{ marginLeft: 'auto' }}>
+                <Text size="10px" c="dimmed">翻译</Text>
+                <Switch size="xs" checked={showEnumLabels} onChange={e => setShowEnumLabels(e.currentTarget.checked)} />
+              </Group>
+            </Tooltip>
           </Group>
         )}
         <Box style={{ flex: 1, position: 'relative' }}>
@@ -373,7 +433,7 @@ export function BuffTemplateEditor({ store }: Props) {
             <BuffNodeCanvas
               nodes={nodes} edges={edges} edgeStyle={edgeStyle}
               onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange}
-              onNodeSelect={() => {}} onDrop={isReadOnly ? undefined : handleDrop}
+              onNodeSelect={handleNodeSelect} onDrop={isReadOnly ? undefined : handleDrop}
             />
           ) : (
             <Stack align="center" justify="center" style={{ height: '100%' }}>
@@ -383,16 +443,32 @@ export function BuffTemplateEditor({ store }: Props) {
         </Box>
       </Box>
 
-      {/* Right: Node palette */}
-      {activeKey && !isReadOnly && (
+      {/* Right: Node palette / References */}
+      {activeKey && (
         <Box style={{
           width: 260, flexShrink: 0,
           borderLeft: '1px solid var(--mantine-color-dark-4)',
-          overflow: 'hidden', padding: 8, display: 'flex', flexDirection: 'column',
+          overflow: 'hidden', padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
         }}>
-          <BuffNodePalette onAddNode={addNodeFromPalette} />
+          <SegmentedControl
+            size="xs" fullWidth
+            value={rightPanel}
+            onChange={v => setRightPanel(v as 'palette' | 'references')}
+            data={[
+              { value: 'palette', label: '节点面板' },
+              { value: 'references', label: '引用分析' },
+            ]}
+          />
+          <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            {rightPanel === 'palette' ? (
+              <BuffNodePalette onAddNode={addNodeFromPalette} />
+            ) : (
+              <BuffReferencePanel />
+            )}
+          </Box>
         </Box>
       )}
     </Box>
+    </BuffEditorContext.Provider>
   )
 }
