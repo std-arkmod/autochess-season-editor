@@ -94,6 +94,17 @@ export function buildDefaultNode(rawType: string): Record<string, unknown> {
   for (const [key, prop] of Object.entries(schema.properties)) {
     node[key] = prop.defaultValue
   }
+  if (schema.hasBranches) {
+    node._succeedNodes = []
+    node._failNodes = []
+  }
+  if (schema.hasCondition) {
+    node._conditionNode = null
+  }
+  if (schema.hasMultiCondition) {
+    node._conditionsNode = []
+    node._isAnd = true
+  }
   return node
 }
 

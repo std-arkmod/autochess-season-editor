@@ -3,6 +3,23 @@
  * 自动生成，覆盖所有节点类型、属性名、事件类型
  */
 
+import type { LabelMode } from './enumRegistry'
+
+/** Resolve display text: cn mode → Chinese label, raw/rawOnly → raw string */
+export function tl(raw: string, dict: Record<string, string>, mode: LabelMode): string {
+  if (mode === 'cn') return dict[raw] ?? raw
+  return raw
+}
+
+/** Resolve tooltip: cn → show raw, raw → show Chinese, rawOnly → nothing */
+export function tlTip(raw: string, dict: Record<string, string>, mode: LabelMode): string | undefined {
+  const cn = dict[raw]
+  if (!cn) return undefined
+  if (mode === 'cn') return raw
+  if (mode === 'raw') return cn
+  return undefined
+}
+
 /** 节点类型名称翻译 (1200 项) */
 export const nodeNames: Record<string, string> = {
   "Act20SideModeOnlyIncreaseScore": '理想城：长夏狂欢季仅增加分数',

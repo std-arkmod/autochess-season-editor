@@ -129,10 +129,10 @@ function walkActions(actions: ActionNode[], pathPrefix: string, startX: number):
     const resultNodes: Node[] = []
     const resultEdges: Edge[] = []
 
-    // Detect branching patterns
-    const hasSingleCondition = action._conditionNode != null
-    const hasMultiCondition = Array.isArray(action._conditionsNode) && action._conditionsNode.length > 0
-    const hasBranches = action._succeedNodes != null || action._failNodes != null
+    // Detect branching patterns — use schema as source of truth, runtime data for actual content
+    const hasSingleCondition = typeDef.hasCondition && action._conditionNode != null
+    const hasMultiCondition = typeDef.hasMultiCondition && Array.isArray(action._conditionsNode) && action._conditionsNode.length > 0
+    const hasBranches = typeDef.hasBranches
     const isBranching = hasSingleCondition || hasMultiCondition || hasBranches
 
     // Determine visual node type

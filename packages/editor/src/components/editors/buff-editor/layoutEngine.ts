@@ -1,6 +1,7 @@
 import dagre from 'dagre'
 import type { Node, Edge } from '@xyflow/react'
 import type { FlowNodeData } from './graphConversion'
+import { getSchema } from './nodeSchema'
 
 const NODE_WIDTH = 300
 
@@ -10,6 +11,7 @@ const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNod
 function estimateNodeHeight(node: Node): number {
   const d = node.data as unknown as FlowNodeData
   const actionNode: Record<string, any> = d?.actionNode ?? {}
+  const schema = getSchema(d?.nodeType ?? '')
 
   // Title bar: ~28px
   let height = 28
@@ -17,18 +19,18 @@ function estimateNodeHeight(node: Node): number {
   // Pin rows
   const isEvent = d?.isEventTrigger
   const isConditionNode = d?.treePath?.includes('.condition')
-  const hasCondition = actionNode._conditionNode != null
-  const hasMultiCondition = Array.isArray(actionNode._conditionsNode) && actionNode._conditionsNode.length > 0
-  const hasBranches = actionNode._succeedNodes != null || actionNode._failNodes != null
 
   let leftPinCount = 0
   if (!isEvent && !isConditionNode) leftPinCount++
-  if (hasCondition) leftPinCount++
-  if (hasMultiCondition) leftPinCount += (actionNode._conditionsNode as unknown[]).length
+  if (schema.hasCondition) leftPinCount++
+  if (schema.hasMultiCondition) {
+    const conditions = Array.isArray(actionNode._conditionsNode) ? actionNode._conditionsNode as unknown[] : []
+    leftPinCount += Math.max(conditions.length, 1)
+  }
 
   let rightPinCount = 0
   if (!isConditionNode) rightPinCount++
-  if (hasBranches) rightPinCount += 2
+  if (schema.hasBranches) rightPinCount += 2
   if (isConditionNode) rightPinCount++
 
   const pinRows = Math.max(leftPinCount, rightPinCount)

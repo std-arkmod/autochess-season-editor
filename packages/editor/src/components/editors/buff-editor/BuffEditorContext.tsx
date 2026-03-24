@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 import type { BuffTemplate } from '@autochess-editor/shared'
 import type { BuffReferenceIndex } from './buffReferenceIndex'
+import type { LabelMode } from './enumRegistry'
 
 export interface BuffEditorContextValue {
   goToDefinition: (templateKey: string) => void
@@ -8,7 +9,8 @@ export interface BuffEditorContextValue {
   refTemplates: Record<string, BuffTemplate> | null
   activeKey: string | null
   selectedNodeType: string | null
-  showEnumLabels: boolean
+  labelMode: LabelMode
+  isReadOnly: boolean
 }
 
 export const BuffEditorContext = createContext<BuffEditorContextValue>({
@@ -17,7 +19,8 @@ export const BuffEditorContext = createContext<BuffEditorContextValue>({
   refTemplates: null,
   activeKey: null,
   selectedNodeType: null,
-  showEnumLabels: true,
+  labelMode: 'cn',
+  isReadOnly: false,
 })
 
 export function useBuffEditor() {

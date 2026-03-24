@@ -1,13 +1,15 @@
 import { memo, useCallback } from 'react'
 import { Handle, Position, type NodeProps, useReactFlow } from '@xyflow/react'
 import type { FlowNodeData } from './graphConversion'
-import { getSchema, categoryColors } from './nodeSchema'
+import { getSchema, categoryColors, categoryLabels } from './nodeSchema'
 import { InlineField } from './InlineField'
-import { nodeNames, eventLabels } from './buffEditorI18n'
+import { nodeNames, eventLabels, tl, tlTip } from './buffEditorI18n'
+import { useBuffEditor } from './BuffEditorContext'
 
 const TREE_KEYS = new Set(['$type', '_conditionNode', '_succeedNodes', '_failNodes', '_conditionsNode', '_isAnd'])
 
 function BlueprintNodeInner({ id, data, selected }: NodeProps) {
+  const { labelMode } = useBuffEditor()
   const d = data as unknown as FlowNodeData
   const schema = getSchema(d.nodeType)
   const isEvent = d.isEventTrigger
@@ -17,9 +19,9 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
   const actionNode: Record<string, any> = d.actionNode ?? {}
   const properties = Object.entries(actionNode).filter(([k]) => !TREE_KEYS.has(k))
 
-  const hasBranches = actionNode._succeedNodes != null || actionNode._failNodes != null
-  const hasCondition = actionNode._conditionNode != null
-  const hasMultiCondition = Array.isArray(actionNode._conditionsNode) && actionNode._conditionsNode.length > 0
+  const hasBranches = schema.hasBranches
+  const hasCondition = schema.hasCondition
+  const hasMultiCondition = schema.hasMultiCondition
 
   const { setNodes } = useReactFlow()
 
@@ -43,10 +45,11 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
     leftPins.push({ id: 'condition', label: '● 条件', color: '#f39c12', type: 'target' })
   }
   if (hasMultiCondition) {
-    const conditions = actionNode._conditionsNode as unknown[]
-    conditions.forEach((_, i) => {
+    const conditions = Array.isArray(actionNode._conditionsNode) ? actionNode._conditionsNode as unknown[] : []
+    const count = Math.max(conditions.length, 1)
+    for (let i = 0; i < count; i++) {
       leftPins.push({ id: `condition_${i}`, label: `● 条件${i + 1}`, color: '#f39c12', type: 'target' })
-    })
+    }
   }
 
   // Build right-side pins (outputs)
@@ -70,10 +73,12 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
       borderRadius: 6,
       minWidth: 280,
       maxWidth: 420,
-      border: selected ? '2px solid #fff' : `1px solid ${color}55`,
+      border: `1px solid ${selected ? color : `${color}55`}`,
+      outline: selected ? '2px solid rgba(255,255,255,0.6)' : 'none',
+      outlineOffset: 1,
       overflow: 'visible',
       fontSize: 11,
-      boxShadow: selected ? `0 0 12px ${color}44` : '0 2px 8px #00000044',
+      boxShadow: selected ? `0 0 16px ${color}66` : '0 2px 8px #00000044',
       position: 'relative',
     }}>
       {/* Title bar */}
@@ -88,10 +93,12 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <span title={isEvent ? (d.label as string) : schema.shortName}>
-          {isEvent ? (eventLabels[d.label as string] ?? d.label) : (nodeNames[schema.shortName] ?? schema.shortName)}
+        <span title={isEvent ? (tlTip(d.eventType ?? d.label as string, eventLabels, labelMode) ?? (d.eventType ?? d.label as string)) : (tlTip(schema.shortName, nodeNames, labelMode) ?? schema.shortName)}>
+          {isEvent ? tl(d.eventType ?? d.label as string, eventLabels, labelMode) : tl(schema.shortName, nodeNames, labelMode)}
         </span>
-        <span style={{ fontSize: 9, opacity: 0.6 }}>{schema.category}</span>
+        <span style={{ fontSize: 9, opacity: 0.6 }} title={tlTip(schema.category, categoryLabels, labelMode)}>
+          {tl(schema.category, categoryLabels, labelMode)}
+        </span>
       </div>
 
       {/* Pin rows — each row has a left pin and a right pin, handles are inline */}

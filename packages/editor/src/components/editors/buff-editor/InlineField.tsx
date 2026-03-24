@@ -1,20 +1,15 @@
 import { useState } from 'react'
 import {
   TextInput, NumberInput, Switch, Select, Group, Text,
-  ActionIcon, Tooltip, UnstyledButton, Collapse, Stack, Paper,
+  ActionIcon, Tooltip, Collapse, Stack, Paper,
 } from '@mantine/core'
 import {
   IconChevronRight, IconChevronDown, IconPlus, IconTrash,
   IconArrowUp, IconArrowDown, IconExternalLink,
 } from '@tabler/icons-react'
-import { propLabels } from './buffEditorI18n'
+import { propLabels, tl, tlTip } from './buffEditorI18n'
 import { useBuffEditor } from './BuffEditorContext'
-import { getEnumInfo, isRefProp } from './enumRegistry'
-
-/** Resolve display label for a property key */
-function t(key: string): string {
-  return propLabels[key] ?? key
-}
+import { getEnumInfo, isRefProp, type EnumInfo, type LabelMode } from './enumRegistry'
 
 const LABEL_W = 130
 
@@ -29,8 +24,9 @@ interface Props {
 }
 
 export function InlineField({ propKey, value, onChange, examples, parentKey }: Props) {
-  const label = t(propKey)
-  const tip = label !== propKey ? `${label} (${propKey})` : propKey
+  const { labelMode } = useBuffEditor()
+  const label = tl(propKey, propLabels, labelMode)
+  const tip = tlTip(propKey, propLabels, labelMode) ?? propKey
 
   // null / undefined
   if (value === undefined || value === null) {
@@ -101,30 +97,54 @@ export function InlineField({ propKey, value, onChange, examples, parentKey }: P
   )
 }
 
+// ── Shared enum Select with tooltip support ──
+
+function enumSelectData(enumInfo: EnumInfo, mode: LabelMode) {
+  return mode === 'cn' ? enumInfo.cnOptions : enumInfo.rawOptions
+}
+
+/** Get tooltip text for a value based on the current label mode */
+function enumTooltip(enumInfo: EnumInfo, rawValue: string, mode: LabelMode): string | undefined {
+  if (mode === 'cn') return rawValue  // hovering CN shows raw
+  if (mode === 'raw') return enumInfo.labelMap[rawValue]  // hovering raw shows CN
+  return undefined  // rawOnly: no tooltip
+}
+
+function EnumSelectRenderOption(mode: LabelMode, enumInfo: EnumInfo) {
+  if (mode === 'rawOnly') return undefined
+  return ({ option }: { option: { value: string; label: string } }) => {
+    const tip = enumTooltip(enumInfo, option.value, mode)
+    return <span title={tip}>{option.label}</span>
+  }
+}
+
 // ── Number field (with optional enum select) ──
 
 function InlineNumberField({ propKey, value, onChange, label, tip }: {
   propKey: string; value: number; onChange: (v: unknown) => void; label: string; tip: string
 }) {
-  const { showEnumLabels } = useBuffEditor()
+  const { labelMode } = useBuffEditor()
   const enumInfo = getEnumInfo(propKey)
 
   if (enumInfo) {
     const strVal = String(value)
+    const selectTip = enumTooltip(enumInfo, strVal, labelMode)
     return (
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
-        <Select
-          size="xs"
-          value={enumInfo.values.includes(strVal) ? strVal : null}
-          placeholder={!enumInfo.values.includes(strVal) ? strVal : undefined}
-          onChange={v => onChange(v !== null ? Number(v) : value)}
-          data={showEnumLabels ? enumInfo.options : enumInfo.rawOptions}
-          searchable
-          allowDeselect={false}
-          style={{ flex: 1 }}
-          styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
-        />
+        <div style={{ flex: 1 }} title={selectTip}>
+          <Select
+            size="xs"
+            value={enumInfo.values.includes(strVal) ? strVal : null}
+            placeholder={!enumInfo.values.includes(strVal) ? strVal : undefined}
+            onChange={v => onChange(v !== null ? Number(v) : value)}
+            data={enumSelectData(enumInfo, labelMode)}
+            renderOption={EnumSelectRenderOption(labelMode, enumInfo)}
+            searchable
+            allowDeselect={false}
+            styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
+          />
+        </div>
       </Group>
     )
   }
@@ -150,7 +170,7 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
 function InlineStringField({ propKey, value, onChange, label, tip }: {
   propKey: string; value: string; onChange: (v: unknown) => void; label: string; tip: string
 }) {
-  const { goToDefinition, refIndex, showEnumLabels } = useBuffEditor()
+  const { goToDefinition, refIndex, labelMode } = useBuffEditor()
   const enumInfo = getEnumInfo(propKey)
   const isKnownKey = value && refIndex?.allTemplateKeys.has(value)
   const showLink = isKnownKey || isRefProp(propKey)
@@ -158,21 +178,24 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
   // All string fields use Select — game logic only accepts known values
   if (enumInfo) {
     const isInEnum = enumInfo.values.includes(value)
+    const selectTip = enumTooltip(enumInfo, value, labelMode)
     return (
       <Group gap={4} wrap="nowrap" align="center">
         <Text size="10px" c="dimmed" w={LABEL_W} style={{ flexShrink: 0 }} truncate title={tip}>{label}</Text>
-        <Select
-          size="xs"
-          value={isInEnum ? value : null}
-          placeholder={isInEnum ? undefined : value}
-          onChange={v => { if (v !== null) onChange(v) }}
-          data={showEnumLabels ? enumInfo.options : enumInfo.rawOptions}
-          searchable
-          allowDeselect={false}
-          limit={80}
-          style={{ flex: 1 }}
-          styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
-        />
+        <div style={{ flex: 1 }} title={selectTip}>
+          <Select
+            size="xs"
+            value={isInEnum ? value : null}
+            placeholder={isInEnum ? undefined : value}
+            onChange={v => { if (v !== null) onChange(v) }}
+            data={enumSelectData(enumInfo, labelMode)}
+            renderOption={EnumSelectRenderOption(labelMode, enumInfo)}
+            searchable
+            allowDeselect={false}
+            limit={80}
+            styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
+          />
+        </div>
         {showLink && value && (
           <GoToDefButton value={value} goToDefinition={goToDefinition} />
         )}
@@ -211,9 +234,10 @@ function GoToDefButton({ value, goToDefinition }: { value: string; goToDefinitio
 // ── Collapsible array with add/remove/reorder ──
 
 function InlineArray({ propKey, value, onChange }: { propKey: string; value: unknown[]; onChange: (v: unknown) => void }) {
+  const { labelMode } = useBuffEditor()
   const [opened, setOpened] = useState(false)
-  const label = t(propKey)
-  const tip = label !== propKey ? `${label} (${propKey})` : propKey
+  const label = tl(propKey, propLabels, labelMode)
+  const tip = tlTip(propKey, propLabels, labelMode) ?? propKey
 
   const addItem = () => {
     let newItem: unknown = ''
@@ -247,16 +271,18 @@ function InlineArray({ propKey, value, onChange }: { propKey: string; value: unk
 
   return (
     <Paper p={0} style={{ borderLeft: '2px solid var(--mantine-color-dark-4)' }}>
-      <UnstyledButton
+      <div
+        role="button" tabIndex={0}
         onClick={() => setOpened(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 6px' }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setOpened(o => !o) }}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 6px', cursor: 'pointer' }}
       >
         {opened ? <IconChevronDown size={10} /> : <IconChevronRight size={10} />}
         <Text size="10px" c="dimmed" style={{ flex: 1 }} title={tip}>{label} ({value.length}项)</Text>
         <ActionIcon size={14} variant="subtle" style={{ flexShrink: 0 }} onClick={e => { e.stopPropagation(); addItem() }}>
           <IconPlus size={10} />
         </ActionIcon>
-      </UnstyledButton>
+      </div>
       <Collapse in={opened}>
         <Stack gap={2} pl={8} pr={4} pb={4}>
           {value.map((item, idx) => (
@@ -289,11 +315,12 @@ function InlineArray({ propKey, value, onChange }: { propKey: string; value: unk
 // ── Collapsible object with add/remove keys ──
 
 function InlineObject({ propKey, value, onChange }: { propKey: string; value: Record<string, unknown>; onChange: (v: unknown) => void }) {
+  const { labelMode } = useBuffEditor()
   const [opened, setOpened] = useState(false)
   const [newKeyInput, setNewKeyInput] = useState('')
   const [showAddKey, setShowAddKey] = useState(false)
-  const label = t(propKey)
-  const tip = label !== propKey ? `${label} (${propKey})` : propKey
+  const label = tl(propKey, propLabels, labelMode)
+  const tip = tlTip(propKey, propLabels, labelMode) ?? propKey
 
   const entries = Object.entries(value)
 
@@ -315,16 +342,18 @@ function InlineObject({ propKey, value, onChange }: { propKey: string; value: Re
 
   return (
     <Paper p={0} style={{ borderLeft: '2px solid var(--mantine-color-dark-4)' }}>
-      <UnstyledButton
+      <div
+        role="button" tabIndex={0}
         onClick={() => setOpened(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 6px' }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setOpened(o => !o) }}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 6px', cursor: 'pointer' }}
       >
         {opened ? <IconChevronDown size={10} /> : <IconChevronRight size={10} />}
         <Text size="10px" c="dimmed" style={{ flex: 1 }} title={tip}>{label} ({entries.length}字段)</Text>
         <ActionIcon size={14} variant="subtle" style={{ flexShrink: 0 }} onClick={e => { e.stopPropagation(); setShowAddKey(true); setOpened(true) }}>
           <IconPlus size={10} />
         </ActionIcon>
-      </UnstyledButton>
+      </div>
       <Collapse in={opened}>
         <Stack gap={2} pl={8} pr={4} pb={4}>
           {entries.map(([k, v]) => (

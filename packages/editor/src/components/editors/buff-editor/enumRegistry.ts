@@ -9,12 +9,16 @@
 
 // ── Types ──
 
+export type LabelMode = 'cn' | 'raw' | 'rawOnly'
+
 export interface EnumInfo {
   values: string[]
-  /** Pre-built Mantine Select data with Chinese labels */
-  options: { value: string; label: string }[]
-  /** Pre-built Mantine Select data without labels (raw values only) */
+  /** Options with Chinese labels (e.g. "物理") */
+  cnOptions: { value: string; label: string }[]
+  /** Options with raw values only (e.g. "PHYSICAL") */
   rawOptions: { value: string; label: string }[]
+  /** Maps raw value → Chinese label (for tooltip use) */
+  labelMap: Record<string, string>
 }
 
 // ── State ──
@@ -1284,17 +1288,23 @@ export function finalizeEnums(allTemplateKeys?: Set<string>): void {
         ?? (TARGET_SOURCE_FAMILY.has(propKey) ? enumValueLabels._targetType : undefined)
         ?? (isKeyProp ? _commonBBKeyLabels : undefined)
 
-      const options = sorted.map(v => {
+      const cnOptions = sorted.map(v => {
         if (v === '') return { value: '', label: '(空)' }
         const cnLabel = labelMap?.[v]
-        return { value: v, label: cnLabel ? `${cnLabel} (${v})` : v }
+        return { value: v, label: cnLabel ?? v }
       })
       const rawOptions = sorted.map(v => {
         if (v === '') return { value: '', label: '(空)' }
         return { value: v, label: v }
       })
+      const labelRecord: Record<string, string> = {}
+      if (labelMap) {
+        for (const v of sorted) {
+          if (labelMap[v]) labelRecord[v] = labelMap[v]
+        }
+      }
 
-      _enumMap.set(propKey, { values: sorted, options, rawOptions })
+      _enumMap.set(propKey, { values: sorted, cnOptions, rawOptions, labelMap: labelRecord })
     }
   }
 
@@ -1353,10 +1363,10 @@ export function mergeUserTemplateKeys(userKeys: string[]): void {
     }
     merged.sort()
 
-    const options = merged.map(v => {
+    const rawOptions = merged.map(v => {
       if (v === '') return { value: '', label: '(空)' }
       return { value: v, label: v }
     })
-    _enumMap.set(propKey, { values: merged, options, rawOptions: options })
+    _enumMap.set(propKey, { values: merged, cnOptions: rawOptions, rawOptions, labelMap: {} })
   }
 }

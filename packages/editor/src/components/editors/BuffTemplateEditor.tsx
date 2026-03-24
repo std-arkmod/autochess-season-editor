@@ -1,17 +1,21 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { Box, Text, Group, Select, ActionIcon, Tooltip, Stack, Progress, SegmentedControl, Loader, Switch } from '@mantine/core'
-import { IconLayoutAlignBottom, IconArrowBackUp } from '@tabler/icons-react'
+import { Box, Text, Stack, Progress, SegmentedControl, Loader } from '@mantine/core'
+import { useHotkeys } from '@mantine/hooks'
 import type { Node, Edge } from '@xyflow/react'
 import type { BuffTemplate } from '@autochess-editor/shared'
 import type { DataStore } from '../../store/dataStore'
 import { treeToGraph, graphToTree, type FlowNodeData } from './buff-editor/graphConversion'
 import { autoLayout } from './buff-editor/layoutEngine'
 import { getSchema, buildDefaultNode, loadGameData, normalizeType, type NodeSchema } from './buff-editor/nodeSchema'
-import { BuffNodeCanvas, type EdgeStyle } from './buff-editor/BuffNodeCanvas'
+import { BuffNodeCanvas, type EdgeStyle, type ReactFlowApi } from './buff-editor/BuffNodeCanvas'
+import type { MouseTool } from './buff-editor/mouseTools'
 import { BuffTemplateList } from './buff-editor/BuffTemplateList'
 import { BuffNodePalette } from './buff-editor/BuffNodePalette'
 import { BuffReferencePanel } from './buff-editor/BuffReferencePanel'
 import { BuffEditorContext, type BuffEditorContextValue } from './buff-editor/BuffEditorContext'
+import { BuffEditorToolbar } from './buff-editor/BuffEditorToolbar'
+import { CanvasContextMenu } from './buff-editor/CanvasContextMenu'
+import { useCanvasCommands, type ContextMenuType } from './buff-editor/useCanvasCommands'
 import { buildBuffIndex, type BuffReferenceIndex } from './buff-editor/buffReferenceIndex'
 import { mergeUserTemplateKeys } from './buff-editor/enumRegistry'
 import { eventLabels } from './buff-editor/buffEditorI18n'
@@ -62,7 +66,7 @@ const ALL_EVENTS = [
   'ON_TOGGLE_SKILL_START', 'ON_TRIGGER_PALSY', 'ON_UNIT_SWITCH_MODE',
 ]
 
-const EVENT_OPTIONS = (() => {
+function buildEventOptions(mode: 'cn' | 'raw' | 'rawOnly') {
   const groups = new Map<string, string[]>()
   for (const e of ALL_EVENTS) {
     const parts = e.split('_')
@@ -73,9 +77,13 @@ const EVENT_OPTIONS = (() => {
   }
   return Array.from(groups.entries()).map(([group, items]) => ({
     group,
-    items: items.map(e => ({ value: e, label: eventLabels[e] ?? e })),
+    items: items.map(e => {
+      const cn = eventLabels[e]
+      const label = mode === 'cn' && cn ? cn : e
+      return { value: e, label }
+    }),
   }))
-})()
+}
 
 const MAX_UNDO = 30
 interface Snapshot { nodes: Node[]; edges: Edge[] }
@@ -103,7 +111,39 @@ export function BuffTemplateEditor({ store }: Props) {
 
   const [rightPanel, setRightPanel] = useState<'palette' | 'references'>('palette')
   const [selectedNodeType, setSelectedNodeType] = useState<string | null>(null)
-  const [showEnumLabels, setShowEnumLabels] = useState(true)
+  const [labelMode, setLabelMode] = useState<'cn' | 'raw' | 'rawOnly'>('cn')
+
+  // Mouse tool
+  const [activeTool, setActiveTool] = useState<MouseTool>('select')
+
+  // Selection tracking
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set())
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    type: ContextMenuType
+    position: { x: number; y: number }
+    targetId?: string
+  } | null>(null)
+
+  // ReactFlow API ref + canvas container ref for viewport center
+  const reactFlowApiRef = useRef<ReactFlowApi | null>(null)
+  const canvasBoxRef = useRef<HTMLDivElement>(null)
+
+  /** Get center of current viewport in flow coordinates */
+  const getViewportCenter = useCallback(() => {
+    const api = reactFlowApiRef.current
+    const box = canvasBoxRef.current
+    if (!api || !box) return { x: 300, y: 200 } // fallback
+    const rect = box.getBoundingClientRect()
+    return api.screenToFlowPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    })
+  }, [])
+
+  const eventOptions = useMemo(() => buildEventOptions(labelMode), [labelMode])
 
   // Game data + schema loading
   const [refTemplates, setRefTemplates] = useState<Record<string, BuffTemplate> | null>(_cachedRefTemplates)
@@ -115,7 +155,6 @@ export function BuffTemplateEditor({ store }: Props) {
   // Auto-load game data on mount (skip if already cached)
   useEffect(() => {
     if (_cachedRefTemplates || _loadingPromise) {
-      // Already loaded or in progress
       if (_loadingPromise) {
         _loadingPromise.then(t => {
           setRefTemplates(t as Record<string, BuffTemplate>)
@@ -132,7 +171,6 @@ export function BuffTemplateEditor({ store }: Props) {
     }).then(templates => {
       _cachedRefTemplates = templates as Record<string, BuffTemplate>
       setRefTemplates(_cachedRefTemplates)
-      // Build reference index in background
       const idx = buildBuffIndex(_cachedRefTemplates)
       _cachedRefIndex = idx
       setRefIndex(idx)
@@ -151,26 +189,186 @@ export function BuffTemplateEditor({ store }: Props) {
   useEffect(() => { nodesRef.current = nodes }, [nodes])
   useEffect(() => { edgesRef.current = edges }, [edges])
 
-  // Undo
+  // ── Undo / Redo ──
   const undoStack = useRef<Snapshot[]>([])
+  const redoStack = useRef<Snapshot[]>([])
+  const [undoLen, setUndoLen] = useState(0)
+  const [redoLen, setRedoLen] = useState(0)
+
   const pushUndo = useCallback(() => {
     undoStack.current.push({
       nodes: nodesRef.current.map(n => ({ ...n, data: { ...n.data } })),
       edges: [...edgesRef.current],
     })
     if (undoStack.current.length > MAX_UNDO) undoStack.current.shift()
+    redoStack.current = []
+    setUndoLen(undoStack.current.length)
+    setRedoLen(0)
   }, [])
+
   const undo = useCallback(() => {
     const s = undoStack.current.pop()
-    if (s) { setNodes(s.nodes); setEdges(s.edges) }
+    if (!s) return
+    // Push current state to redo
+    redoStack.current.push({
+      nodes: nodesRef.current.map(n => ({ ...n, data: { ...n.data } })),
+      edges: [...edgesRef.current],
+    })
+    setNodes(s.nodes); setEdges(s.edges)
+    setUndoLen(undoStack.current.length)
+    setRedoLen(redoStack.current.length)
   }, [])
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
+
+  const redo = useCallback(() => {
+    const s = redoStack.current.pop()
+    if (!s) return
+    // Push current state to undo
+    undoStack.current.push({
+      nodes: nodesRef.current.map(n => ({ ...n, data: { ...n.data } })),
+      edges: [...edgesRef.current],
+    })
+    setNodes(s.nodes); setEdges(s.edges)
+    setUndoLen(undoStack.current.length)
+    setRedoLen(redoStack.current.length)
+  }, [])
+
+  // ── Clipboard ──
+  const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null)
+  const [hasClipboard, setHasClipboard] = useState(false)
+
+  const copyNodes = useCallback(() => {
+    const selNodes = nodesRef.current.filter(n => selectedNodeIds.has(n.id))
+    if (selNodes.length === 0) return
+    const selNodeIdSet = new Set(selNodes.map(n => n.id))
+    const selEdges = edgesRef.current.filter(e => selNodeIdSet.has(e.source) && selNodeIdSet.has(e.target))
+    clipboardRef.current = {
+      nodes: selNodes.map(n => ({ ...n, data: { ...n.data } })),
+      edges: selEdges.map(e => ({ ...e })),
     }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [undo])
+    setHasClipboard(true)
+  }, [selectedNodeIds])
+
+  const pasteNodes = useCallback(() => {
+    if (!clipboardRef.current || isReadOnly) return
+    pushUndo()
+    const { nodes: clipNodes, edges: clipEdges } = clipboardRef.current
+    const idMap = new Map<string, string>()
+    const now = Date.now()
+    const newNodes = clipNodes.map((n, i) => {
+      const newId = `paste_${now}_${i}`
+      idMap.set(n.id, newId)
+      return { ...n, id: newId, position: { x: n.position.x + 30, y: n.position.y + 30 }, data: { ...n.data }, selected: true }
+    })
+    const newEdges = clipEdges
+      .filter(e => idMap.has(e.source) && idMap.has(e.target))
+      .map((e, i) => ({
+        ...e,
+        id: `paste_edge_${now}_${i}`,
+        source: idMap.get(e.source)!,
+        target: idMap.get(e.target)!,
+      }))
+    // Deselect existing nodes
+    setNodes(prev => [...prev.map(n => ({ ...n, selected: false })), ...newNodes])
+    setEdges(prev => [...prev, ...newEdges])
+    debouncedSave()
+  }, [isReadOnly]) // debouncedSave and pushUndo are stable refs added below
+
+  const cutNodes = useCallback(() => {
+    if (isReadOnly) return
+    copyNodes()
+    // Delete selected
+    pushUndo()
+    setNodes(prev => prev.filter(n => !selectedNodeIds.has(n.id)))
+    setEdges(prev => prev.filter(e => !selectedNodeIds.has(e.source) && !selectedNodeIds.has(e.target) && !selectedEdgeIds.has(e.id)))
+    debouncedSave()
+  }, [isReadOnly, selectedNodeIds, selectedEdgeIds, copyNodes]) // pushUndo, debouncedSave stable
+
+  const duplicateNodes = useCallback(() => {
+    if (isReadOnly) return
+    copyNodes()
+    // Immediately paste
+    if (!clipboardRef.current) return
+    pushUndo()
+    const { nodes: clipNodes, edges: clipEdges } = clipboardRef.current
+    const idMap = new Map<string, string>()
+    const now = Date.now()
+    const newNodes = clipNodes.map((n, i) => {
+      const newId = `dup_${now}_${i}`
+      idMap.set(n.id, newId)
+      return { ...n, id: newId, position: { x: n.position.x + 30, y: n.position.y + 30 }, data: { ...n.data }, selected: true }
+    })
+    const newEdges = clipEdges
+      .filter(e => idMap.has(e.source) && idMap.has(e.target))
+      .map((e, i) => ({
+        ...e,
+        id: `dup_edge_${now}_${i}`,
+        source: idMap.get(e.source)!,
+        target: idMap.get(e.target)!,
+      }))
+    setNodes(prev => [...prev.map(n => ({ ...n, selected: false })), ...newNodes])
+    setEdges(prev => [...prev, ...newEdges])
+    debouncedSave()
+  }, [isReadOnly, copyNodes]) // pushUndo, debouncedSave stable
+
+  const deleteSelected = useCallback(() => {
+    if (isReadOnly) return
+    if (selectedNodeIds.size === 0 && selectedEdgeIds.size === 0) return
+    pushUndo()
+    setNodes(prev => prev.filter(n => !selectedNodeIds.has(n.id)))
+    setEdges(prev => prev.filter(e =>
+      !selectedEdgeIds.has(e.id) &&
+      !selectedNodeIds.has(e.source) &&
+      !selectedNodeIds.has(e.target)
+    ))
+    debouncedSave()
+  }, [isReadOnly, selectedNodeIds, selectedEdgeIds]) // pushUndo, debouncedSave stable
+
+  const selectAll = useCallback(() => {
+    setNodes(prev => prev.map(n => ({ ...n, selected: true })))
+    setEdges(prev => prev.map(e => ({ ...e, selected: true })))
+  }, [])
+
+  const frameSelected = useCallback(() => {
+    if (selectedNodeIds.size === 0 || !reactFlowApiRef.current) return
+    const selectedNodes = nodesRef.current.filter(n => selectedNodeIds.has(n.id))
+    if (selectedNodes.length === 0) return
+    reactFlowApiRef.current.fitView({ padding: 0.3, nodes: selectedNodes.map(n => ({ id: n.id })) })
+  }, [selectedNodeIds])
+
+  const fitViewCmd = useCallback(() => {
+    reactFlowApiRef.current?.fitView({ padding: 0.1 })
+  }, [])
+
+  const disconnectNode = useCallback(() => {
+    if (isReadOnly || selectedNodeIds.size === 0) return
+    pushUndo()
+    setEdges(prev => prev.filter(e => !selectedNodeIds.has(e.source) && !selectedNodeIds.has(e.target)))
+    debouncedSave()
+  }, [isReadOnly, selectedNodeIds]) // pushUndo, debouncedSave stable
+
+  // ── Knife tool: cut edges ──
+  const handleCutEdges = useCallback((edgeIds: string[]) => {
+    if (isReadOnly || edgeIds.length === 0) return
+    pushUndo()
+    const toRemove = new Set(edgeIds)
+    setEdges(prev => prev.filter(e => !toRemove.has(e.id)))
+    debouncedSave()
+  }, [isReadOnly]) // pushUndo, debouncedSave stable
+
+  // ── Comment tool: create comment node ──
+  const handleCreateComment = useCallback((position: { x: number; y: number }, size: { width: number; height: number }) => {
+    if (isReadOnly) return
+    pushUndo()
+    setNodes(prev => [...prev, {
+      id: `comment_${Date.now()}`,
+      type: 'comment',
+      position,
+      style: { width: size.width, height: size.height, zIndex: -1 },
+      data: { label: '', color: 'rgba(255, 255, 255, 0.06)' },
+    }])
+    setActiveTool('select') // auto-switch back to select after creating
+    debouncedSave()
+  }, [isReadOnly]) // pushUndo, debouncedSave stable
 
   // Save
   const updateTemplates = useCallback((t: Record<string, BuffTemplate>) => {
@@ -194,12 +392,16 @@ export function BuffTemplateEditor({ store }: Props) {
   }, [saveGraph, isReadOnly])
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
 
-  // Select template — try user templates first, then reference
+  const saveImmediate = useCallback(() => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    saveGraph()
+  }, [saveGraph])
+
+  // Select template
   const selectTemplate = useCallback((key: string) => {
     if (!isReadOnly && saveTimerRef.current) {
       clearTimeout(saveTimerRef.current); saveTimerRef.current = null; saveGraph()
     }
-    // Find template from either source
     const isFromUser = key in buffTemplates
     const template = buffTemplates[key] ?? refTemplates?.[key]
     if (!template) return
@@ -209,11 +411,22 @@ export function BuffTemplateEditor({ store }: Props) {
     setNodes(autoLayout(n, e))
     setEdges(e)
     undoStack.current = []
+    redoStack.current = []
+    setUndoLen(0)
+    setRedoLen(0)
+    setSelectedNodeIds(new Set())
+    setSelectedEdgeIds(new Set())
+    // fitView after React renders the new nodes
+    requestAnimationFrame(() => {
+      reactFlowApiRef.current?.fitView({ padding: 0.1 })
+    })
   }, [buffTemplates, refTemplates, isReadOnly, activeSeason, saveGraph])
 
   const createTemplate = useCallback((key: string) => {
     updateTemplates({ ...buffTemplates, [key]: { templateKey: key, effectKey: '', onEventPriority: 'DEFAULT', eventToActions: {} } })
-    setListMode('user'); setActiveKey(key); setIsReadOnly(false); setNodes([]); setEdges([]); undoStack.current = []
+    setListMode('user'); setActiveKey(key); setIsReadOnly(false); setNodes([]); setEdges([])
+    undoStack.current = []; redoStack.current = []
+    setUndoLen(0); setRedoLen(0)
   }, [buffTemplates, updateTemplates])
 
   const deleteTemplate = useCallback((key: string) => {
@@ -223,11 +436,10 @@ export function BuffTemplateEditor({ store }: Props) {
     if (activeKey === key) { setActiveKey(null); setNodes([]); setEdges([]) }
   }, [buffTemplates, activeKey, listMode, updateTemplates])
 
-  const duplicateTemplate = useCallback((key: string) => {
+  const duplicateTemplate = useCallback((sourceKey: string, newKey: string) => {
     const source = listMode === 'ref' ? refTemplates : buffTemplates
-    const src = source?.[key]
+    const src = source?.[sourceKey]
     if (!src) return
-    const newKey = `${key}_copy`
     const copy: BuffTemplate = JSON.parse(JSON.stringify(src))
     copy.templateKey = newKey
     updateTemplates({ ...buffTemplates, [newKey]: copy })
@@ -246,22 +458,24 @@ export function BuffTemplateEditor({ store }: Props) {
   const addEvent = useCallback((eventType: string | null) => {
     if (!eventType || !activeKey || isReadOnly) return
     pushUndo()
+    const center = getViewportCenter()
     setNodes(prev => [...prev, {
       id: `trigger_${Date.now()}`, type: 'blueprint',
-      position: { x: 50, y: nodesRef.current.length * 100 + 50 },
+      position: { x: center.x - 90, y: center.y - 25 },
       data: { label: eventLabels[eventType] ?? eventType, nodeType: 'event_trigger', category: 'event', color: '#2c3e50', eventType, isEventTrigger: true, treePath: eventType } as FlowNodeData,
     }])
     debouncedSave()
-  }, [activeKey, isReadOnly, debouncedSave, pushUndo])
+  }, [activeKey, isReadOnly, debouncedSave, pushUndo, getViewportCenter])
 
   const addNodeFromPalette = useCallback((schema: NodeSchema) => {
     if (isReadOnly) return; pushUndo()
+    const center = getViewportCenter()
     setNodes(prev => [...prev, {
       id: `action_${Date.now()}`, type: 'blueprint',
-      position: { x: 300, y: nodesRef.current.length * 80 + 50 },
+      position: { x: center.x - 90, y: center.y - 25 },
       data: { label: schema.shortName, nodeType: schema.type, category: schema.category, color: '', actionNode: buildDefaultNode(schema.type), treePath: `new_${Date.now()}` } as FlowNodeData,
     }])
-  }, [isReadOnly, pushUndo])
+  }, [isReadOnly, pushUndo, getViewportCenter])
 
   const handleDrop = useCallback((e: React.DragEvent, position: { x: number; y: number }) => {
     if (isReadOnly) return
@@ -290,8 +504,46 @@ export function BuffTemplateEditor({ store }: Props) {
     }
   }, [])
 
+  // Selection update from ReactFlow
+  const handleSelectionUpdate = useCallback(({ nodes: selNodes, edges: selEdges }: { nodes: Node[]; edges: Edge[] }) => {
+    setSelectedNodeIds(new Set(selNodes.map(n => n.id)))
+    setSelectedEdgeIds(new Set(selEdges.map(e => e.id)))
+  }, [])
+
+  // ReactFlow API callback
+  const handleReactFlowReady = useCallback((api: ReactFlowApi) => {
+    reactFlowApiRef.current = api
+  }, [])
+
+  // ── Context menu handlers ──
+  const handlePaneContextMenu = useCallback((e: React.MouseEvent) => {
+    setContextMenu({ type: 'pane', position: { x: e.clientX, y: e.clientY } })
+  }, [])
+
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    // If multiple nodes selected and right-clicked node is in selection, show selection menu
+    if (selectedNodeIds.size > 1 && selectedNodeIds.has(node.id)) {
+      setContextMenu({ type: 'selection', position: { x: e.clientX, y: e.clientY } })
+    } else {
+      // Select this node
+      setSelectedNodeIds(new Set([node.id]))
+      setSelectedEdgeIds(new Set())
+      setContextMenu({ type: 'node', position: { x: e.clientX, y: e.clientY }, targetId: node.id })
+    }
+  }, [selectedNodeIds])
+
+  const handleEdgeContextMenu = useCallback((e: React.MouseEvent, edge: Edge) => {
+    setSelectedEdgeIds(new Set([edge.id]))
+    setContextMenu({ type: 'edge', position: { x: e.clientX, y: e.clientY }, targetId: edge.id })
+  }, [])
+
+  const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
+    setContextMenu({ type: 'selection', position: { x: e.clientX, y: e.clientY } })
+  }, [])
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
   const goToDefinition = useCallback((templateKey: string) => {
-    // Switch to ref list if the template is a reference template
     if (templateKey in buffTemplates) {
       setListMode('user')
     } else if (refTemplates && templateKey in refTemplates) {
@@ -301,14 +553,33 @@ export function BuffTemplateEditor({ store }: Props) {
     setRightPanel('references')
   }, [buffTemplates, refTemplates, selectTemplate])
 
+  // ── Command system ──
+  const { commands, hotkeyBindings, getContextMenuItems } = useCanvasCommands({
+    nodes, edges, selectedNodeIds, selectedEdgeIds,
+    isReadOnly, hasUndo: undoLen > 0, hasRedo: redoLen > 0,
+    hasClipboard, activeKey,
+    undo, redo, copyNodes, pasteNodes, cutNodes, duplicateNodes,
+    deleteSelected, selectAll, autoLayout: handleAutoLayout,
+    frameSelected, fitView: fitViewCmd, disconnectNode,
+    save: saveImmediate, setActiveTool,
+  })
+
+  useHotkeys(hotkeyBindings)
+
+  const contextMenuItems = useMemo(() =>
+    contextMenu ? getContextMenuItems(contextMenu.type) : [],
+    [contextMenu, getContextMenuItems],
+  )
+
   const contextValue = useMemo<BuffEditorContextValue>(() => ({
     goToDefinition,
     refIndex,
     refTemplates,
     activeKey,
     selectedNodeType,
-    showEnumLabels,
-  }), [goToDefinition, refIndex, refTemplates, activeKey, selectedNodeType, showEnumLabels])
+    labelMode,
+    isReadOnly,
+  }), [goToDefinition, refIndex, refTemplates, activeKey, selectedNodeType, labelMode, isReadOnly])
 
   const displayedTemplates = listMode === 'ref' ? (refTemplates ?? {}) : buffTemplates
 
@@ -391,49 +662,35 @@ export function BuffTemplateEditor({ store }: Props) {
       {/* Center: Canvas + toolbar */}
       <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {activeKey && (
-          <Group gap="xs" px="sm" py={6} style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', flexShrink: 0 }}>
-            <Text size="xs" fw={600}>{activeKey}</Text>
-            {isReadOnly && <Text size="10px" c="yellow" fw={600}>只读参考</Text>}
-            {!isReadOnly && (
-              <Select size="xs" placeholder="添加事件..." data={EVENT_OPTIONS} value={null} onChange={addEvent} clearable searchable style={{ width: 240 }} />
-            )}
-            <Tooltip label="自动布局">
-              <ActionIcon size="sm" variant="light" onClick={handleAutoLayout}>
-                <IconLayoutAlignBottom size={14} />
-              </ActionIcon>
-            </Tooltip>
-            {!isReadOnly && (
-              <Tooltip label="撤销 (Ctrl+Z)">
-                <ActionIcon size="sm" variant="light" onClick={undo} disabled={undoStack.current.length === 0}>
-                  <IconArrowBackUp size={14} />
-                </ActionIcon>
-              </Tooltip>
-            )}
-            <Select
-              size="xs" value={edgeStyle}
-              onChange={v => v && setEdgeStyle(v as EdgeStyle)}
-              data={[
-                { value: 'default', label: '曲线' },
-                { value: 'straight', label: '直线' },
-                { value: 'step', label: '直角' },
-                { value: 'smoothstep', label: '圆角直角' },
-              ]}
-              style={{ width: 110 }} allowDeselect={false}
-            />
-            <Tooltip label="显示/隐藏枚举中文翻译">
-              <Group gap={4} wrap="nowrap" style={{ marginLeft: 'auto' }}>
-                <Text size="10px" c="dimmed">翻译</Text>
-                <Switch size="xs" checked={showEnumLabels} onChange={e => setShowEnumLabels(e.currentTarget.checked)} />
-              </Group>
-            </Tooltip>
-          </Group>
+          <BuffEditorToolbar
+            activeKey={activeKey}
+            isReadOnly={isReadOnly}
+            commands={commands}
+            activeTool={activeTool}
+            onToolChange={setActiveTool}
+            eventOptions={eventOptions}
+            onAddEvent={addEvent}
+            edgeStyle={edgeStyle}
+            onEdgeStyleChange={setEdgeStyle}
+            labelMode={labelMode}
+            onLabelModeChange={setLabelMode}
+          />
         )}
-        <Box style={{ flex: 1, position: 'relative' }}>
+        <Box ref={canvasBoxRef} style={{ flex: 1, position: 'relative' }}>
           {activeKey ? (
             <BuffNodeCanvas
               nodes={nodes} edges={edges} edgeStyle={edgeStyle}
+              activeTool={activeTool}
               onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange}
               onNodeSelect={handleNodeSelect} onDrop={isReadOnly ? undefined : handleDrop}
+              onPaneContextMenu={handlePaneContextMenu}
+              onNodeContextMenu={handleNodeContextMenu}
+              onEdgeContextMenu={handleEdgeContextMenu}
+              onSelectionContextMenu={handleSelectionContextMenu}
+              onSelectionUpdate={handleSelectionUpdate}
+              onReactFlowReady={handleReactFlowReady}
+              onCutEdges={handleCutEdges}
+              onCreateComment={handleCreateComment}
             />
           ) : (
             <Stack align="center" justify="center" style={{ height: '100%' }}>
@@ -468,6 +725,15 @@ export function BuffTemplateEditor({ store }: Props) {
           </Box>
         </Box>
       )}
+
+      {/* Context menu */}
+      <CanvasContextMenu
+        position={contextMenu?.position ?? null}
+        items={contextMenuItems}
+        opened={!!contextMenu}
+        onClose={closeContextMenu}
+        isReadOnly={isReadOnly}
+      />
     </Box>
     </BuffEditorContext.Provider>
   )

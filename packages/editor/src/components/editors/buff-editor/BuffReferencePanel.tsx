@@ -6,7 +6,7 @@ import {
 import { IconArrowRight, IconSearch, IconMaximize, IconExternalLink } from '@tabler/icons-react'
 import { useBuffEditor } from './BuffEditorContext'
 import { buildEntityOwnerIndex, type EntityOwner, type UsageExample } from './buffReferenceIndex'
-import { nodeNames, eventLabels, propLabels } from './buffEditorI18n'
+import { nodeNames, eventLabels, propLabels, tl, tlTip } from './buffEditorI18n'
 
 // ─── Main Panel (sidebar) ───
 
@@ -172,13 +172,13 @@ function ReferenceModal({
 // ─── Shared Components ───
 
 function SelectedNodeBadge() {
-  const { selectedNodeType } = useBuffEditor()
+  const { selectedNodeType, labelMode } = useBuffEditor()
   if (!selectedNodeType) return null
-  return <Badge size="xs" variant="light" color="teal">{nodeNames[selectedNodeType] ?? selectedNodeType}</Badge>
+  return <Badge size="xs" variant="light" color="teal" title={tlTip(selectedNodeType, nodeNames, labelMode)}>{tl(selectedNodeType, nodeNames, labelMode)}</Badge>
 }
 
 function RefLink({ templateKey, showDetail }: { templateKey: string; showDetail?: boolean }) {
-  const { goToDefinition, refTemplates } = useBuffEditor()
+  const { goToDefinition, refTemplates, labelMode } = useBuffEditor()
   const template = refTemplates?.[templateKey]
   return (
     <UnstyledButton onClick={() => goToDefinition(templateKey)} style={{ width: '100%' }}>
@@ -196,7 +196,7 @@ function RefLink({ templateKey, showDetail }: { templateKey: string; showDetail?
         {showDetail && template && (
           <Group gap={4} mt={4} ml={16}>
             {Object.keys(template.eventToActions ?? {}).map(ev => (
-              <Badge key={ev} size="xs" variant="light" color="blue">{eventLabels[ev] ?? ev}</Badge>
+              <Badge key={ev} size="xs" variant="light" color="blue" title={tlTip(ev, eventLabels, labelMode)}>{tl(ev, eventLabels, labelMode)}</Badge>
             ))}
           </Group>
         )}
@@ -292,7 +292,7 @@ function DependsOnSection({ activeKey, compact }: { activeKey: string; compact: 
 }
 
 function UsageExamplesSection({ compact }: { compact: boolean }) {
-  const { refIndex, selectedNodeType, goToDefinition } = useBuffEditor()
+  const { refIndex, selectedNodeType, goToDefinition, labelMode } = useBuffEditor()
   if (!refIndex) return null
 
   if (!selectedNodeType) {
@@ -304,7 +304,7 @@ function UsageExamplesSection({ compact }: { compact: boolean }) {
     return <Text size={compact ? '10px' : 'sm'} c="dimmed">无示例</Text>
   }
 
-  const displayName = nodeNames[selectedNodeType] ?? selectedNodeType
+  const displayName = tl(selectedNodeType, nodeNames, labelMode)
 
   if (compact) {
     return (
@@ -316,7 +316,7 @@ function UsageExamplesSection({ compact }: { compact: boolean }) {
               <Group gap={4} mb={2}>
                 <IconSearch size={9} />
                 <Text size="9px" fw={500} truncate title={ex.templateKey}>{ex.templateKey}</Text>
-                <Text size="8px" c="dimmed">{eventLabels[ex.eventType] ?? ex.eventType}</Text>
+                <Text size="8px" c="dimmed">{tl(ex.eventType, eventLabels, labelMode)}</Text>
               </Group>
               <div style={{ paddingLeft: 12 }}>
                 {Object.entries(ex.props).slice(0, 5).map(([k, v]) => (
@@ -343,7 +343,7 @@ function UsageExamplesSection({ compact }: { compact: boolean }) {
 }
 
 function UsageExampleCard({ example, index }: { example: UsageExample; index: number }) {
-  const { goToDefinition } = useBuffEditor()
+  const { goToDefinition, labelMode } = useBuffEditor()
   const propEntries = Object.entries(example.props)
   return (
     <Paper p="sm" withBorder>
@@ -355,7 +355,7 @@ function UsageExampleCard({ example, index }: { example: UsageExample; index: nu
             <Text size="sm" fw={500} td="underline">{example.templateKey}</Text>
           </Group>
         </UnstyledButton>
-        <Badge size="sm" variant="light" color="blue">{eventLabels[example.eventType] ?? example.eventType}</Badge>
+        <Badge size="sm" variant="light" color="blue" title={tlTip(example.eventType, eventLabels, labelMode)}>{tl(example.eventType, eventLabels, labelMode)}</Badge>
       </Group>
       {propEntries.length > 0 && (
         <Table striped highlightOnHover withTableBorder withColumnBorders fz="xs">
@@ -370,7 +370,7 @@ function UsageExampleCard({ example, index }: { example: UsageExample; index: nu
             {propEntries.map(([k, v]) => (
               <Table.Tr key={k}>
                 <Table.Td><Code>{k}</Code></Table.Td>
-                <Table.Td><Text size="xs" c="dimmed">{propLabels[k] ?? '-'}</Text></Table.Td>
+                <Table.Td><Text size="xs" c="dimmed">{tl(k, propLabels, labelMode) !== k ? tl(k, propLabels, labelMode) : '-'}</Text></Table.Td>
                 <Table.Td><Text size="xs" ff="monospace">{String(v)}</Text></Table.Td>
               </Table.Tr>
             ))}
@@ -452,7 +452,7 @@ function DependencyGraphSection({ activeKey, full }: { activeKey: string; full?:
 // ─── Raw Data Section (modal only) ───
 
 function RawDataSection({ activeKey }: { activeKey: string }) {
-  const { refIndex, refTemplates } = useBuffEditor()
+  const { refIndex, refTemplates, labelMode } = useBuffEditor()
   if (!refIndex) return null
 
   const template = refTemplates?.[activeKey]
@@ -506,12 +506,12 @@ function RawDataSection({ activeKey }: { activeKey: string }) {
                 return (
                   <Table.Tr key={ev}>
                     <Table.Td><Code>{ev}</Code></Table.Td>
-                    <Table.Td><Text size="xs">{eventLabels[ev] ?? '-'}</Text></Table.Td>
+                    <Table.Td><Text size="xs">{tl(ev, eventLabels, labelMode) !== ev ? tl(ev, eventLabels, labelMode) : '-'}</Text></Table.Td>
                     <Table.Td>{Array.isArray(actions) ? actions.length : 0}</Table.Td>
                     <Table.Td>
                       <Group gap={4}>
                         {[...types].map(t => (
-                          <Badge key={t} size="xs" variant="light">{nodeNames[t] ?? t}</Badge>
+                          <Badge key={t} size="xs" variant="light" title={tlTip(t, nodeNames, labelMode)}>{tl(t, nodeNames, labelMode)}</Badge>
                         ))}
                       </Group>
                     </Table.Td>

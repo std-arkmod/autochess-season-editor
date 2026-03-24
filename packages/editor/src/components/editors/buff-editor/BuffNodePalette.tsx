@@ -2,7 +2,8 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { Stack, TextInput, Text, Paper, Group, Badge, Accordion } from '@mantine/core'
 import { IconSearch, IconPlus } from '@tabler/icons-react'
 import { getAllSchemas, getSchemasByCategory, categoryLabels, type NodeSchema } from './nodeSchema'
-import { nodeNames } from './buffEditorI18n'
+import { nodeNames, tl, tlTip } from './buffEditorI18n'
+import { useBuffEditor } from './BuffEditorContext'
 
 const PAGE_SIZE = 60
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function BuffNodePalette({ onAddNode }: Props) {
+  const { labelMode } = useBuffEditor()
   const [search, setSearch] = useState('')
   const [customType, setCustomType] = useState('')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -24,7 +26,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
     return allSchemas.filter(s =>
       s.shortName.toLowerCase().includes(q) ||
       s.type.toLowerCase().includes(q) ||
-      (nodeNames[s.shortName] ?? '').includes(q)
+      (nodeNames[s.shortName] ?? '').includes(q)  // always search CN regardless of mode
     )
   }, [search, allSchemas])
 
@@ -78,7 +80,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
           background: categoryLabels[s.category] ? undefined : '#7f8c8d',
           flexShrink: 0,
         }} />
-        <Text size="10px" truncate style={{ flex: 1 }} title={s.shortName}>{nodeNames[s.shortName] ?? s.shortName}</Text>
+        <Text size="10px" truncate style={{ flex: 1 }} title={tlTip(s.shortName, nodeNames, labelMode) ?? s.shortName}>{tl(s.shortName, nodeNames, labelMode)}</Text>
         {s.instanceCount > 0 && (
           <Text size="9px" c="dimmed">{s.instanceCount}</Text>
         )}
@@ -137,7 +139,7 @@ export function BuffNodePalette({ onAddNode }: Props) {
                 <Accordion.Item key={cat} value={cat}>
                   <Accordion.Control>
                     <Group gap={6}>
-                      <Text size="10px">{categoryLabels[cat] ?? cat}</Text>
+                      <Text size="10px" title={tlTip(cat, categoryLabels, labelMode)}>{tl(cat, categoryLabels, labelMode)}</Text>
                       <Badge size="xs" variant="light">{schemas.length}</Badge>
                     </Group>
                   </Accordion.Control>

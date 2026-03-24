@@ -11,7 +11,7 @@ interface Props {
   onSelect: (key: string) => void
   onCreate: (key: string) => void
   onDelete: (key: string) => void
-  onDuplicate: (key: string) => void
+  onDuplicate: (sourceKey: string, newKey: string) => void
   readOnly?: boolean
 }
 
@@ -19,6 +19,8 @@ export function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onD
   const [search, setSearch] = useState('')
   const [newKeyModal, setNewKeyModal] = useState(false)
   const [newKey, setNewKey] = useState('')
+  const [dupModal, setDupModal] = useState<string | null>(null)
+  const [dupKey, setDupKey] = useState('')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -48,6 +50,18 @@ export function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onD
     onCreate(newKey.trim())
     setNewKey('')
     setNewKeyModal(false)
+  }
+
+  const openDupModal = (key: string) => {
+    setDupModal(key)
+    setDupKey(`${key}_copy`)
+  }
+
+  const handleDuplicate = () => {
+    if (!dupModal || !dupKey.trim()) return
+    onDuplicate(dupModal, dupKey.trim())
+    setDupModal(null)
+    setDupKey('')
   }
 
   return (
@@ -93,7 +107,7 @@ export function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onD
             <Group gap={4} justify="space-between" wrap="nowrap">
               <Text size="xs" truncate style={{ flex: 1 }}>{key}</Text>
               <Group gap={2} wrap="nowrap">
-                <ActionIcon size={16} variant="subtle" onClick={e => { e.stopPropagation(); onDuplicate(key) }}>
+                <ActionIcon size={16} variant="subtle" onClick={e => { e.stopPropagation(); openDupModal(key) }}>
                   <IconCopy size={10} />
                 </ActionIcon>
                 {!readOnly && (
@@ -125,6 +139,21 @@ export function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onD
             onKeyDown={e => e.key === 'Enter' && handleCreate()}
           />
           <Button onClick={handleCreate} disabled={!newKey.trim()}>创建</Button>
+        </Stack>
+      </Modal>
+
+      <Modal opened={dupModal !== null} onClose={() => setDupModal(null)} title="复制模板" size="sm">
+        <Stack gap="sm">
+          <Text size="xs" c="dimmed">源模板: {dupModal}</Text>
+          <TextInput
+            label="新模板 Key"
+            placeholder="输入新模板名称"
+            value={dupKey}
+            onChange={e => setDupKey(e.currentTarget.value)}
+            onKeyDown={e => e.key === 'Enter' && handleDuplicate()}
+            autoFocus
+          />
+          <Button onClick={handleDuplicate} disabled={!dupKey.trim()}>复制</Button>
         </Stack>
       </Modal>
     </Stack>
