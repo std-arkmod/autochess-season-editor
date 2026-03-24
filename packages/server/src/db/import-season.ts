@@ -1,17 +1,24 @@
 /**
- * Import seasons from a JSON file containing AutoChessSeasonData.
+ * Import seasons from JSON files containing AutoChessSeasonData.
  *
  * Supported formats:
  *   1. activity_table.json — extracts all seasons from activity.AUTOCHESS_SEASON
  *   2. A single AutoChessSeasonData object — imported as one season
+ *   3. { "seasonKey": AutoChessSeasonData, ... } — multiple seasons keyed by name
  *
- * Usage: tsx src/db/import-season.ts <json-file> [label]
- *   label is only used for format 2 (single season).
+ * Usage: tsx src/db/import-season.ts [json-file] [label]
+ *   When no file is given, imports all .json files from data/ directory.
+ *   label is only used when importing a single file with format 2.
  */
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
+import { resolve, dirname, basename } from 'path'
+import { fileURLToPath } from 'url'
 import { nanoid } from 'nanoid'
 import { db, schema } from './index.ts'
 import { eq, sql } from 'drizzle-orm'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const BUNDLED_DIR = resolve(__dirname, '../../data')
 
 /** Known top-level keys in AutoChessSeasonData */
 const SEASON_KEYS = new Set([
@@ -44,22 +51,47 @@ function extractSeasons(raw: Record<string, unknown>): { label: string; data: Re
     return [{ label: 'Imported Season', data: raw }]
   }
 
-  throw new Error('无法识别的 JSON 格式。支持 activity_table.json 或单个 AutoChessSeasonData 对象。')
+  // Format 3: { "seasonKey": AutoChessSeasonData, ... }
+  const entries = Object.entries(raw).filter(([, v]) =>
+    typeof v === 'object' && v !== null && isSeasonData(v as Record<string, unknown>),
+  )
+  if (entries.length > 0) {
+    return entries.map(([key, data]) => ({ label: key, data: data as Record<string, unknown> }))
+  }
+
+  throw new Error('无法识别的 JSON 格式。支持 activity_table.json、单个 AutoChessSeasonData 或 { key: SeasonData } 格式。')
 }
 
 async function main() {
   const filePath = process.argv[2]
-  if (!filePath) {
-    console.error('Usage: tsx src/db/import-season.ts <json-file> [label]')
-    process.exit(1)
-  }
-
   const customLabel = process.argv[3]
 
-  console.log(`Reading: ${filePath}`)
-  const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, unknown>
-  const seasons = extractSeasons(raw)
-  console.log(`Found ${seasons.length} season(s)`)
+  // Collect files to import
+  let files: { path: string; label?: string }[]
+  if (filePath) {
+    files = [{ path: filePath, label: customLabel }]
+  } else {
+    // Import all .json from bundled data/ directory
+    const entries = readdirSync(BUNDLED_DIR).filter(f => f.endsWith('.json')).sort()
+    if (entries.length === 0) {
+      console.error(`No .json files found in ${BUNDLED_DIR}`)
+      process.exit(1)
+    }
+    files = entries.map(f => ({ path: resolve(BUNDLED_DIR, f), label: basename(f, '.json') }))
+    console.log(`Found ${files.length} file(s) in data/`)
+  }
+
+  // Extract seasons from all files
+  const seasons: { label: string; data: Record<string, unknown> }[] = []
+  for (const file of files) {
+    console.log(`Reading: ${file.path}`)
+    const raw = JSON.parse(readFileSync(file.path, 'utf-8')) as Record<string, unknown>
+    const extracted = extractSeasons(raw)
+    for (const s of extracted) {
+      seasons.push({ label: file.label && extracted.length === 1 ? file.label : s.label, data: s.data })
+    }
+  }
+  console.log(`Found ${seasons.length} season(s) total`)
 
   // Find admin user
   const [admin] = await db.select().from(schema.users).where(eq(schema.users.role, 'admin')).limit(1)
@@ -71,7 +103,7 @@ async function main() {
   const isTemplate = !process.argv.includes('--private')
 
   for (const season of seasons) {
-    const label = seasons.length === 1 && customLabel ? customLabel : season.label
+    const label = season.label
     const id = nanoid()
     const now = new Date()
 

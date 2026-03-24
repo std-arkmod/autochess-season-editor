@@ -55,19 +55,17 @@ pnpm --filter @autochess-editor/server db:seed myuser mypassword
 
 导入的数据默认作为**模板**（所有用户可见，需复制后才能编辑）。
 
-支持两种 JSON 格式：
-1. **activity_table.json** — 从游戏数据 `activity.AUTOCHESS_SEASON` 中自动提取所有赛季
-2. **单个 AutoChessSeasonData 对象** — 直接导入为一个赛季
+项目自带赛季数据在 `packages/server/data/` 目录下，每个 `.json` 文件对应一个赛季（`AutoChessSeasonData` 格式）。更新游戏数据时直接替换对应文件即可。
 
 ```bash
-# 从 activity_table.json 导入（自动提取所有赛季）
-pnpm --filter @autochess-editor/server db:import /path/to/activity_table.json
+# 导入 data/ 目录下所有赛季（推荐，文件名作为赛季名）
+pnpm --filter @autochess-editor/server db:import
 
-# 导入单个赛季数据并指定名称
+# 也可以指定单个文件导入
 pnpm --filter @autochess-editor/server db:import /path/to/season.json "赛季名称"
 
 # 如需导入为私有赛季（而非模板），加 --private 标志：
-pnpm --filter @autochess-editor/server db:import /path/to/activity_table.json --private
+pnpm --filter @autochess-editor/server db:import /path/to/season.json --private
 ```
 
 ### 6. 启动
@@ -140,11 +138,19 @@ server {
 ## 重置数据库
 
 ```bash
+# 保留用户，清除赛季等数据后重新导入
+pnpm --filter @autochess-editor/server db:reset
+pnpm --filter @autochess-editor/server db:import
+
+# 或一键执行：
+pnpm --filter @autochess-editor/server db:reset-import
+
+# 完全重建（包括用户）：
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS autochess_editor;"
 sudo -u postgres psql -c "CREATE DATABASE autochess_editor;"
 pnpm --filter @autochess-editor/server db:migrate
 pnpm --filter @autochess-editor/server db:seed
-pnpm --filter @autochess-editor/server db:import /path/to/activity_table.json
+pnpm --filter @autochess-editor/server db:import
 ```
 
 ---

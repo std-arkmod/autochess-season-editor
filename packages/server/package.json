@@ -10,7 +10,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:import": "tsx src/db/import-season.ts"
+    "db:import": "tsx src/db/import-season.ts",
+    "db:reset": "tsx src/db/reset.ts",
+    "db:reset-import": "tsx src/db/reset.ts && tsx src/db/import-season.ts"
   },
   "dependencies": {
     "@autochess-editor/shared": "workspace:*",
