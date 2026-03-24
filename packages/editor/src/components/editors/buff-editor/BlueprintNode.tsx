@@ -218,7 +218,7 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
 
       {/* Properties — inline editing */}
       {properties.length > 0 && (
-        <div className="nodrag nopan" style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {properties.map(([key, value]) => (
             <InlineField
               key={key}
