@@ -67,6 +67,7 @@ export const CommentNode = memo(function CommentNode({ data, selected }: NodePro
       >
         {editing ? (
           <input
+            className="nodrag nopan"
             type="text"
             value={text}
             onChange={e => setText(e.target.value)}
