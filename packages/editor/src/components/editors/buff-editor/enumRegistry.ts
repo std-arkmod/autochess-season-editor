@@ -27,9 +27,6 @@ const _valueCollector = new Map<string, Set<string>>()
 const _enumMap = new Map<string, EnumInfo>()
 let _finalized = false
 
-// Known template keys for reference fields
-let _allTemplateKeys: Set<string> | null = null
-
 import { TREE_KEYS } from './constants'
 
 // ── Chinese labels for enum values ──
@@ -1186,51 +1183,6 @@ const TARGET_SOURCE_FAMILY = new Set([
   '_selectorTarget', '_sourceTarget', '_startPointTarget', '_startPositionType',
   '_targetEnemyType', '_tileTargetType', 'm_sourceType', '_buffToEnemyTarget',
 ])
-
-// ── Common blackboard key labels (shared fallback for *Key/*key properties) ──
-
-const _commonBBKeyLabels: Record<string, string> = {
-  // Core attributes
-  atk: '攻击力', def: '防御力', max_hp: '最大生命值', hp: '生命值',
-  hp_ratio: '生命比例', attack_speed: '攻击速度', move_speed: '移动速度',
-  sp: '技力', cost: '费用', block_cnt: '阻挡数',
-  magic_resistance: '法术抗性', ability_range_forward_extend: '攻击范围前方扩展',
-  mass_level: '重量等级',
-  // Scaling / multipliers
-  atk_scale: '攻击倍率', damage_scale: '伤害倍率', heal_scale: '治疗倍率',
-  damage: '伤害', damage_value: '伤害值', damage_resistance: '伤害减免',
-  scale: '倍率', value: '数值', dynamic: '动态值', ratio: '比例',
-  // Counts & stacks
-  cnt: '计数', max_cnt: '最大计数', count: '计数', max_stack_cnt: '最大叠加数',
-  stack_cnt: '叠加数', buff_cnt: 'Buff计数', times: '次数', max_times: '最大次数',
-  hit_count: '命中次数', max_target: '最大目标数', init_stack_cnt: '初始叠加数',
-  target_stack_cnt: '目标叠加数', buff_stack: 'Buff叠加',
-  // Duration & timing
-  duration: '持续时间', interval: '间隔', cooldown: '冷却', time: '时间',
-  time_spend: '耗时', respawn_time: '再部署时间', stun_duration: '晕眩时间',
-  shield_duration: '护盾时间', buff_duration: 'Buff持续时间',
-  fly_duration: '飞行时间', height_duration: '高度时间',
-  // Status effects (from gamedata_const)
-  stun: '晕眩', silence: '沉默', cold: '寒冷', freeze: '冻结',
-  sluggish: '停顿', cripple: '处决', sleep: '沉睡', force: '力',
-  // Combat
-  prob: '概率', shield: '护盾', max_shield: '最大护盾', direction: '方向',
-  tag: '标签', cached_atk: '缓存攻击力', mode: '模式', state: '状态',
-  enable: '启用', zero: '零', one: '一',
-  // Resource
-  eqp_count: '装备数', bond_stack_cnt: '羁绊叠加数',
-  // Specific but common
-  range_radius: '攻击范围半径', range_radius_addon: '攻击范围附加',
-  ep_damage_ratio: '元素损伤比例', cost_scale: '费用倍率',
-  disarmed_combat: '战斗缴械', cur_hp_ratio: '当前生命比例',
-  part_name: '部件名', col: '列', row: '行',
-  card_uid: '卡牌UID', score: '分数', next_mode: '下次模式',
-  zero_mark: '零标记', killed: '击杀', hp_cur: '当前生命',
-  curr_value: '当前值', multi: '倍数', target_cnt: '目标数',
-  // Empty / special
-  empty: '空', none: '无', _: '(下划线)', __: '(双下划线)', invalid: '无效',
-}
-
 // ── Collection (called during loadGameData scan) ──
 
 export function collectPropertyValue(propKey: string, value: unknown): void {
@@ -1259,11 +1211,9 @@ export function collectNestedValues(obj: Record<string, unknown>): void {
 }
 
 /** Called once after game data scan completes. Analyzes collected values to build enum map. */
-export function finalizeEnums(allTemplateKeys?: Set<string>): void {
+export function finalizeEnums(): void {
   if (_finalized) return
   _finalized = true
-  if (allTemplateKeys) _allTemplateKeys = allTemplateKeys
-
   for (const [propKey, valueSet] of _valueCollector) {
     if (TREE_KEYS.has(propKey)) continue
     const values = [...valueSet]
@@ -1282,11 +1232,9 @@ export function finalizeEnums(allTemplateKeys?: Set<string>): void {
         ? values.sort((a, b) => Number(a) - Number(b))
         : values.sort()
 
-      // Label lookup: specific labels → TARGET_SOURCE_FAMILY → common BB key fallback
-      const isKeyProp = /[Kk]eys?$/.test(propKey) || /(?:Var|String|Scale|Bb|BB|Str)$/.test(propKey)
+      // Label lookup: specific labels → TARGET_SOURCE_FAMILY (blackboard keys left untranslated)
       const labelMap = enumValueLabels[propKey]
         ?? (TARGET_SOURCE_FAMILY.has(propKey) ? enumValueLabels._targetType : undefined)
-        ?? (isKeyProp ? _commonBBKeyLabels : undefined)
 
       const cnOptions = sorted.map(v => {
         if (v === '') return { value: '', label: '(空)' }

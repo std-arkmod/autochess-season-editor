@@ -5,18 +5,21 @@
 
 import type { LabelMode } from './enumRegistry'
 
-/** Resolve display text: cn mode → Chinese label, raw/rawOnly → raw string */
+/** Resolve display text: cn → 中文（原文）, raw → 原文（中文）, rawOnly → 原文 */
 export function tl(raw: string, dict: Record<string, string>, mode: LabelMode): string {
-  if (mode === 'cn') return dict[raw] ?? raw
+  const cn = dict[raw]
+  if (!cn) return raw
+  if (mode === 'cn') return `${cn}（${raw}）`
+  if (mode === 'raw') return `${raw}（${cn}）`
   return raw
 }
 
-/** Resolve tooltip: cn → show raw, raw → show Chinese, rawOnly → nothing */
+/** Resolve tooltip: show full label for truncated text, rawOnly → nothing */
 export function tlTip(raw: string, dict: Record<string, string>, mode: LabelMode): string | undefined {
   const cn = dict[raw]
   if (!cn) return undefined
-  if (mode === 'cn') return raw
-  if (mode === 'raw') return cn
+  if (mode === 'cn') return `${cn}（${raw}）`
+  if (mode === 'raw') return `${raw}（${cn}）`
   return undefined
 }
 

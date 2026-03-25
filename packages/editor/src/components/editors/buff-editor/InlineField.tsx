@@ -12,19 +12,17 @@ import { propLabels, tl, tlTip } from './buffEditorI18n'
 import { useBuffEditor } from './BuffEditorContext'
 import { getEnumInfo, isRefProp, type EnumInfo, type LabelMode } from './enumRegistry'
 
-const LABEL_W = 130
+const LABEL_W = 200
 
 interface Props {
   propKey: string
   value: unknown
   onChange: (value: unknown) => void
-  /** Hint examples from schema */
-  examples?: unknown[]
   /** Parent array/object key — used to inherit enum/ref context for array items */
   parentKey?: string
 }
 
-export function InlineField({ propKey, value, onChange, examples, parentKey }: Props) {
+export function InlineField({ propKey, value, onChange, parentKey }: Props) {
   const { labelMode } = useBuffEditor()
   const label = tl(propKey, propLabels, labelMode)
   const tip = tlTip(propKey, propLabels, labelMode) ?? propKey
@@ -113,7 +111,7 @@ function AutocompleteRenderOption(enumInfo: EnumInfo, mode: LabelMode, selectedV
     if (mode === 'cn') {
       return <span ref={scrollRef} style={fw}>{isCur && '● '}{cn} <span style={{ opacity: 0.5, fontSize: '9px' }}>({option.value})</span></span>
     }
-    return <span ref={scrollRef} style={fw}>{isCur && '● '}{option.value} <span style={{ opacity: 0.5, fontSize: '9px' }}>{cn}</span></span>
+    return <span ref={scrollRef} style={fw}>{isCur && '● '}{option.value} <span style={{ opacity: 0.5, fontSize: '9px' }}>({cn})</span></span>
   }
 }
 

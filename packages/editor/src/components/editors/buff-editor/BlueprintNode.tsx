@@ -1,5 +1,5 @@
-import { memo, useCallback, useRef, useEffect } from 'react'
-import { Handle, Position, type NodeProps, useStore } from '@xyflow/react'
+import { memo, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
+import { Handle, Position, type NodeProps, useStore, useStoreApi } from '@xyflow/react'
 import type { FlowNodeData } from './graphConversion'
 import { TREE_KEYS } from './constants'
 import { getSchema, categoryColors, categoryLabels } from './nodeSchema'
@@ -61,9 +61,28 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
   if (hasCondition) {
     leftPins.push({ id: 'condition', label: '● 条件', color: '#f39c12', type: 'target' })
   }
+  // For multi-condition: derive pin count from edges (synchronous via useStore)
+  // so new pins appear in the same render as the edge, not after a delayed effect.
+  const maxConnectedCondIdx = useStore(
+    useCallback(
+      (store: { edges: Array<{ target: string; targetHandle?: string | null }> }) => {
+        let max = -1
+        for (const e of store.edges) {
+          if (e.target !== id) continue
+          const h = e.targetHandle
+          if (h?.startsWith('condition_')) {
+            const idx = parseInt(h.replace('condition_', ''))
+            if (idx > max) max = idx
+          }
+        }
+        return max
+      },
+      [id],
+    ),
+  )
   if (hasMultiCondition) {
     const conditions = Array.isArray(actionNode._conditionsNode) ? actionNode._conditionsNode as unknown[] : []
-    const count = Math.max(conditions.length, 1)
+    const count = Math.max(conditions.length, maxConnectedCondIdx + 2, 1)
     for (let i = 0; i < count; i++) {
       leftPins.push({ id: `condition_${i}`, label: `● 条件${i + 1}`, color: '#f39c12', type: 'target' })
     }
@@ -90,6 +109,26 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
   }
 
   const pinRowCount = Math.max(leftPins.length, rightPins.length)
+
+  // Notify ReactFlow when handle count changes so connection snapping works for new handles.
+  // useLayoutEffect fires synchronously after DOM commit, before paint — no frame delay.
+  // Uses store directly instead of useUpdateNodeInternals to avoid its requestAnimationFrame delay.
+  // Track total handle count (not pinRowCount which is max of left/right and can stay unchanged).
+  const storeApi = useStoreApi()
+  const handleCount = leftPins.length + rightPins.length
+  const prevHandleCount = useRef(handleCount)
+  useLayoutEffect(() => {
+    if (prevHandleCount.current !== handleCount) {
+      prevHandleCount.current = handleCount
+      const { domNode, updateNodeInternals } = storeApi.getState()
+      const nodeElement = domNode?.querySelector(`.react-flow__node[data-id="${id}"]`)
+      if (nodeElement) {
+        const updates = new Map()
+        updates.set(id, { id, nodeElement, force: true })
+        updateNodeInternals(updates, { triggerFitView: false })
+      }
+    }
+  }, [handleCount, id, storeApi])
 
   // Native mousedown listener to stop propagation for input elements,
   // preventing ReactFlow's D3 drag (which uses mousedown, not pointerdown)
@@ -133,8 +172,8 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
     <div ref={nodeRootRef} style={{
       background: 'var(--mantine-color-dark-7, #1a1a2e)',
       borderRadius: 6,
-      minWidth: 280,
-      maxWidth: 420,
+      minWidth: 400,
+      maxWidth: 600,
       border: `1px solid ${selected ? color : `${color}55`}`,
       outline: selected ? '2px solid rgba(255,255,255,0.6)' : 'none',
       outlineOffset: 1,
@@ -155,10 +194,10 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <span title={isEvent ? (tlTip(d.eventType ?? d.label as string, eventLabels, labelMode) ?? (d.eventType ?? d.label as string)) : (tlTip(schema.shortName, nodeNames, labelMode) ?? schema.shortName)}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={isEvent ? (tlTip(d.eventType ?? d.label as string, eventLabels, labelMode) ?? (d.eventType ?? d.label as string)) : (tlTip(schema.shortName, nodeNames, labelMode) ?? schema.shortName)}>
           {isEvent ? tl(d.eventType ?? d.label as string, eventLabels, labelMode) : tl(schema.shortName, nodeNames, labelMode)}
         </span>
-        <span style={{ fontSize: 9, opacity: 0.6 }} title={tlTip(schema.category, categoryLabels, labelMode)}>
+        <span style={{ fontSize: 9, opacity: 0.6, flexShrink: 0, marginLeft: 6 }} title={tlTip(schema.category, categoryLabels, labelMode)}>
           {tl(schema.category, categoryLabels, labelMode)}
         </span>
       </div>
@@ -263,7 +302,6 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
               propKey={key}
               value={value}
               onChange={v => updateProperty(key, v)}
-              examples={schema.properties[key]?.examples}
             />
           ))}
         </div>

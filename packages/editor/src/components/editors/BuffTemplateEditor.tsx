@@ -202,6 +202,7 @@ export function BuffTemplateEditor({ store }: Props) {
   useEffect(() => { nodesRef.current = nodes }, [nodes])
   useEffect(() => { edgesRef.current = edges }, [edges])
 
+
   // ── Undo / Redo ──
   const undoStack = useRef<Snapshot[]>([])
   const redoStack = useRef<Snapshot[]>([])
@@ -502,6 +503,79 @@ export function BuffTemplateEditor({ store }: Props) {
     ))
   }, [nodes])
 
+  // Reactive multi-condition slot management: compact empty gaps, re-index edges, keep one trailing empty.
+  // Runs as an effect so it catches ALL edge change paths (connect, delete, cut, reconnect, node search, etc.)
+  useEffect(() => {
+    if (isReadOnly) return
+    // Find multi-condition nodes
+    const multiCondNodeIds = new Set<string>()
+    for (const n of nodes) {
+      const d = n.data as any
+      if (getSchema(d?.nodeType ?? '').hasMultiCondition) multiCondNodeIds.add(n.id)
+    }
+    if (multiCondNodeIds.size === 0) return
+
+    // Collect connected condition indices per node
+    const connectedByNode = new Map<string, Set<number>>()
+    for (const edge of edges) {
+      const h = edge.targetHandle
+      if (h?.startsWith('condition_') && multiCondNodeIds.has(edge.target)) {
+        const idx = parseInt(h.replace('condition_', ''))
+        let set = connectedByNode.get(edge.target)
+        if (!set) { set = new Set(); connectedByNode.set(edge.target, set) }
+        set.add(idx)
+      }
+    }
+
+    // Build compaction per node
+    const remapByNode = new Map<string, Map<number, number>>()
+    const newArrByNode = new Map<string, unknown[]>()
+    for (const nodeId of multiCondNodeIds) {
+      const node = nodes.find(n => n.id === nodeId)
+      if (!node) continue
+      const d = node.data as any
+      const arr: unknown[] = Array.isArray(d.actionNode?._conditionsNode) ? d.actionNode._conditionsNode : []
+      const connected = connectedByNode.get(nodeId) ?? new Set<number>()
+      const remap = new Map<number, number>()
+      const newArr: unknown[] = []
+      const maxIdx = Math.max(arr.length, connected.size > 0 ? Math.max(...connected) + 1 : 0)
+      for (let i = 0; i < maxIdx; i++) {
+        if (connected.has(i)) {
+          remap.set(i, newArr.length)
+          newArr.push(i < arr.length ? arr[i] : {})
+        }
+      }
+      newArr.push({}) // one trailing empty slot
+      if (newArr.length !== arr.length || [...remap.entries()].some(([o, n]) => o !== n)) {
+        remapByNode.set(nodeId, remap)
+        newArrByNode.set(nodeId, newArr)
+      }
+    }
+    if (newArrByNode.size === 0) return // idempotent: nothing to compact
+
+    // Re-index edges
+    let edgesModified = false
+    const finalEdges = edges.map(edge => {
+      const h = edge.targetHandle
+      if (!h?.startsWith('condition_')) return edge
+      const remap = remapByNode.get(edge.target)
+      if (!remap) return edge
+      const oldIdx = parseInt(h.replace('condition_', ''))
+      const newIdx = remap.get(oldIdx)
+      if (newIdx === undefined || newIdx === oldIdx) return edge
+      edgesModified = true
+      return { ...edge, targetHandle: `condition_${newIdx}` }
+    })
+    if (edgesModified) setEdges(finalEdges)
+    setNodes(prev => prev.map(n => {
+      const newArr = newArrByNode.get(n.id)
+      if (!newArr) return n
+      const d = n.data as any
+      return { ...n, data: { ...n.data, actionNode: { ...d.actionNode, _conditionsNode: newArr } } }
+    }))
+    debouncedSave()
+  }, [edges, nodes, isReadOnly])
+
   const handleNodesChange = useCallback((n: Node[]) => {
     // Only push undo for structural changes (add/remove), not position/selection
     if (!isReadOnly && n.length !== nodesRef.current.length) pushUndo()
@@ -521,7 +595,8 @@ export function BuffTemplateEditor({ store }: Props) {
       const prevSet = new Set(prev.map(fp))
       if (e.some(edge => !prevSet.has(fp(edge)))) pushUndo()
     }
-    setEdges(e); debouncedSave()
+    setEdges(e)
+    debouncedSave()
   }, [isReadOnly, debouncedSave, pushUndo])
 
   const addEvent = useCallback((eventType: string | null) => {

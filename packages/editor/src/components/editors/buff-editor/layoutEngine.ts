@@ -4,7 +4,7 @@ import type { FlowNodeData } from './graphConversion'
 import { getSchema } from './nodeSchema'
 import { TREE_KEYS } from './constants'
 
-const NODE_WIDTH = 300
+const NODE_WIDTH = 420
 
 /** Estimate node height based on its content to prevent overlap */
 function estimateNodeHeight(node: Node, edges: Edge[]): number {
@@ -29,7 +29,16 @@ function estimateNodeHeight(node: Node, edges: Edge[]): number {
   if (schema.hasCondition) leftPinCount++
   if (schema.hasMultiCondition) {
     const conditions = Array.isArray(actionNode._conditionsNode) ? actionNode._conditionsNode as unknown[] : []
-    leftPinCount += Math.max(conditions.length, 1)
+    let maxCondIdx = -1
+    for (const e of edges) {
+      if (e.target !== node.id) continue
+      const h = e.targetHandle
+      if (h?.startsWith('condition_')) {
+        const idx = parseInt(h.replace('condition_', ''))
+        if (idx > maxCondIdx) maxCondIdx = idx
+      }
+    }
+    leftPinCount += Math.max(conditions.length, maxCondIdx + 2, 1)
   }
 
   let rightPinCount = 0

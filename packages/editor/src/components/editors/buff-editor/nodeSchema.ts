@@ -265,7 +265,7 @@ export async function loadGameData(
     }
   }
 
-  finalizeEnums(new Set(Object.keys(templates)))
+  finalizeEnums()
   _loaded = true
   onProgress({ phase: 'done', percent: 100, detail: `完成：${schemaMap.size} 种节点类型` })
   return templates
