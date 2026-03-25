@@ -1,7 +1,7 @@
-import { Group, ScrollArea, Text, Box, Title, ActionIcon, Tooltip, Loader, Center } from '@mantine/core'
+import { Group, ScrollArea, Text, Box, Title, ActionIcon, Tooltip, Loader, Center, Button, Modal, TextInput, PasswordInput, Stack } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useHotkeys, useDisclosure } from '@mantine/hooks'
-import { IconArrowLeft, IconArrowRight, IconHistory, IconLogout, IconClockEdit } from '@tabler/icons-react'
+import { IconArrowLeft, IconArrowRight, IconHistory, IconLogout, IconClockEdit, IconLogin } from '@tabler/icons-react'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { AutoChessSeasonData } from '@autochess-editor/shared'
 import { useDataStore } from './store/dataStore'
@@ -29,6 +29,9 @@ import { BuffTemplateEditor } from './components/editors/BuffTemplateEditor'
 import { UserManagement } from './components/admin/UserManagement'
 import { EditHistoryPanel } from './components/EditHistoryPanel'
 
+const BUFF_ONLY_HOST = 'arkbuff.aunly.cn'
+const isBuffOnlyMode = window.location.hostname === BUFF_ONLY_HOST
+
 const moduleTitles: Record<string, string> = {
   overview: '数据概览',
   modes: '游戏模式编辑',
@@ -46,7 +49,39 @@ const moduleTitles: Record<string, string> = {
   admin: '用户管理',
 }
 
+/** Buff-only viewer for arkbuff.aunly.cn */
+function BuffViewerApp() {
+  const store = useDataStore()
+
+  useEffect(() => { document.title = 'ArkBuff - Buff 模板查看器' }, [])
+
+  return (
+    <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Group
+        px="md"
+        py="xs"
+        gap="xs"
+        style={{
+          borderBottom: '1px solid var(--mantine-color-dark-4)',
+          background: 'var(--mantine-color-dark-8)',
+          flexShrink: 0,
+          height: 48,
+        }}
+      >
+        <Title order={5} c="teal" style={{ letterSpacing: '-0.5px' }}>
+          ArkBuff
+        </Title>
+        <Text size="xs" c="dimmed">明日方舟 Buff 模板查看器</Text>
+      </Group>
+      <Box style={{ flex: 1, overflow: 'hidden' }}>
+        <BuffTemplateEditor store={store} />
+      </Box>
+    </Box>
+  )
+}
+
 export default function App() {
+  if (isBuffOnlyMode) return <BuffViewerApp />
   const auth = useAuthStore()
   const store = useDataStore()
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null
@@ -182,12 +217,108 @@ export default function App() {
     ['alt+ArrowRight', () => { if (canGoForward) historyForward() }],
   ])
 
+  // Login modal for guest mode
+  const [loginModalOpened, { open: openLoginModal, close: closeLoginModal }] = useDisclosure(false)
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginSubmitting, setLoginSubmitting] = useState(false)
+
+  const handleLoginSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!loginUsername || !loginPassword) return
+    setLoginSubmitting(true)
+    try {
+      await auth.login(loginUsername, loginPassword)
+      closeLoginModal()
+      setLoginUsername('')
+      setLoginPassword('')
+    } finally {
+      setLoginSubmitting(false)
+    }
+  }, [loginUsername, loginPassword, auth.login, closeLoginModal])
+
   // Auth gate
   if (auth.loading) {
     return <Center h="100vh"><Loader size="lg" /></Center>
   }
   if (!auth.isAuthenticated) {
-    return <LoginPage auth={auth} />
+    return (
+      <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Guest header */}
+        <Group
+          px="md"
+          py="xs"
+          gap="xs"
+          style={{
+            borderBottom: '1px solid var(--mantine-color-dark-4)',
+            background: 'var(--mantine-color-dark-8)',
+            flexShrink: 0,
+            height: 48,
+          }}
+        >
+          <Title order={5} c="teal" style={{ letterSpacing: '-0.5px' }}>
+            自走棋赛季编辑器
+          </Title>
+          <Text size="xs" c="dimmed">Buff 模板查看器（游客模式）</Text>
+          <Group gap={4} ml="auto">
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconLogin size={14} />}
+              onClick={openLoginModal}
+            >
+              登录
+            </Button>
+          </Group>
+        </Group>
+
+        {/* Guest content: buff viewer only */}
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <Group
+            px="lg"
+            py="sm"
+            style={{
+              borderBottom: '1px solid var(--mantine-color-dark-5)',
+              background: 'var(--mantine-color-dark-7)',
+              flexShrink: 0,
+            }}
+          >
+            <Title order={5}>Buff 模板查看器</Title>
+            <Text size="xs" c="dimmed">只读模式</Text>
+          </Group>
+          <Box style={{ flex: 1, overflow: 'hidden' }}>
+            <BuffTemplateEditor store={store} />
+          </Box>
+        </Box>
+
+        {/* Login modal */}
+        <Modal opened={loginModalOpened} onClose={closeLoginModal} title="登录" centered size="sm">
+          <form onSubmit={handleLoginSubmit}>
+            <Stack>
+              <TextInput
+                label="用户名"
+                placeholder="请输入用户名"
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.currentTarget.value)}
+                required
+                autoFocus
+              />
+              <PasswordInput
+                label="密码"
+                placeholder="请输入密码"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.currentTarget.value)}
+                required
+              />
+              {auth.error && <Text c="red" size="sm">{auth.error}</Text>}
+              <Button type="submit" fullWidth loading={loginSubmitting} leftSection={<IconLogin size={16} />}>
+                登录
+              </Button>
+            </Stack>
+          </form>
+        </Modal>
+      </Box>
+    )
   }
 
   function renderEditor() {
