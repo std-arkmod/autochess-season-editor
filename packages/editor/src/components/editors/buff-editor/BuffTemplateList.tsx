@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect, memo } from 'react'
 import { Stack, TextInput, Paper, Text, Group, ActionIcon, Modal, Button } from '@mantine/core'
 import { IconPlus, IconTrash, IconCopy, IconSearch } from '@tabler/icons-react'
 import type { BuffTemplate } from '@autochess-editor/shared'
@@ -15,7 +15,7 @@ interface Props {
   readOnly?: boolean
 }
 
-export function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onDelete, onDuplicate, readOnly }: Props) {
+export const BuffTemplateList = memo(function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onDelete, onDuplicate, readOnly }: Props) {
   const [search, setSearch] = useState('')
   const [newKeyModal, setNewKeyModal] = useState(false)
   const [newKey, setNewKey] = useState('')
@@ -158,4 +158,4 @@ export function BuffTemplateList({ templates, activeKey, onSelect, onCreate, onD
       </Modal>
     </Stack>
   )
-}
+})

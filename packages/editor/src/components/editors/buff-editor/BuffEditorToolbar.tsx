@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Group, Text, Select, ActionIcon, Tooltip, SegmentedControl, Divider, Kbd } from '@mantine/core'
 import {
   IconArrowBackUp, IconArrowForwardUp, IconCopy, IconClipboard,
@@ -47,7 +48,7 @@ function CmdButton({ cmd }: { cmd: Command }) {
   )
 }
 
-export function BuffEditorToolbar({
+export const BuffEditorToolbar = memo(function BuffEditorToolbar({
   activeKey, isReadOnly, commands,
   activeTool, onToolChange,
   eventOptions, onAddEvent,
@@ -151,4 +152,4 @@ export function BuffEditorToolbar({
       </Group>
     </Group>
   )
-}
+})

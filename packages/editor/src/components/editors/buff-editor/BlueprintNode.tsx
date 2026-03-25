@@ -3,7 +3,7 @@ import { Handle, Position, type NodeProps, useStore, useStoreApi } from '@xyflow
 import type { FlowNodeData } from './graphConversion'
 import { TREE_KEYS } from './constants'
 import { getSchema, categoryColors, categoryLabels } from './nodeSchema'
-import { InlineField } from './InlineField'
+import { MemoInlineField } from './InlineField'
 import { nodeNames, eventLabels, tl, tlTip } from './buffEditorI18n'
 import { useBuffEditor } from './BuffEditorContext'
 
@@ -297,7 +297,7 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
       {properties.length > 0 && (
         <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {properties.map(([key, value]) => (
-            <InlineField
+            <MemoInlineField
               key={key}
               propKey={key}
               value={value}
@@ -310,4 +310,11 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
   )
 }
 
-export const BlueprintNode = memo(BlueprintNodeInner)
+// Custom comparator: only re-render when data/selection actually changes.
+// Skips positionAbsoluteX/Y and dragging props that change every drag frame,
+// avoiding expensive Mantine widget re-renders during node dragging.
+export const BlueprintNode = memo(BlueprintNodeInner, (prev, next) =>
+  prev.id === next.id &&
+  prev.data === next.data &&
+  prev.selected === next.selected
+)

@@ -7,8 +7,6 @@ export interface BuffEditorContextValue {
   goToDefinition: (templateKey: string) => void
   refIndex: BuffReferenceIndex | null
   refTemplates: Record<string, BuffTemplate> | null
-  activeKey: string | null
-  selectedNodeType: string | null
   labelMode: LabelMode
   isReadOnly: boolean
   /** Update a property on a node's actionNode (with undo support) */
@@ -19,8 +17,6 @@ export const BuffEditorContext = createContext<BuffEditorContextValue>({
   goToDefinition: () => {},
   refIndex: null,
   refTemplates: null,
-  activeKey: null,
-  selectedNodeType: null,
   labelMode: 'cn',
   isReadOnly: false,
   onPropertyEdit: () => {},

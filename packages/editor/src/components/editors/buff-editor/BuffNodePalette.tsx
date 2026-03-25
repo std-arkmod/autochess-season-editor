@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect, memo } from 'react'
 import { Stack, TextInput, Text, Paper, Group, Badge, Accordion } from '@mantine/core'
 import { IconSearch, IconPlus } from '@tabler/icons-react'
 import { getAllSchemas, getSchemasByCategory, categoryLabels, categoryColors, type NodeSchema } from './nodeSchema'
@@ -135,7 +135,7 @@ interface Props {
   onAddNode: (schema: NodeSchema) => void
 }
 
-export function BuffNodePalette({ onAddNode }: Props) {
+export const BuffNodePalette = memo(function BuffNodePalette({ onAddNode }: Props) {
   const { labelMode } = useBuffEditor()
   const [search, setSearch] = useState('')
   const [customType, setCustomType] = useState('')
@@ -297,4 +297,4 @@ export function BuffNodePalette({ onAddNode }: Props) {
       </div>
     </Stack>
   )
-}
+})

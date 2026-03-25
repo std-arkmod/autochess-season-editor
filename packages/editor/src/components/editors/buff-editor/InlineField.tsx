@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import {
   TextInput, Autocomplete, Switch, Group, Text,
   ActionIcon, Tooltip, Collapse, Stack, Paper,
@@ -13,6 +13,7 @@ import { useBuffEditor } from './BuffEditorContext'
 import { getEnumInfo, isRefProp, type EnumInfo, type LabelMode } from './enumRegistry'
 
 const LABEL_W = 200
+const EMPTY_DATA: string[] = []
 
 interface Props {
   propKey: string
@@ -150,6 +151,12 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
   // Local text state to prevent type flipping during intermediate input (e.g. typing "-")
   const [text, setText] = useState(String(value))
   useEffect(() => { setText(String(value)) }, [value])
+  const [dropdownActive, setDropdownActive] = useState(false)
+  const filter = useMemo(() => enumInfo ? makeEnumFilter(enumInfo) : undefined, [enumInfo])
+  const renderOpt = useMemo(
+    () => enumInfo ? AutocompleteRenderOption(enumInfo, labelMode, String(value)) : undefined,
+    [enumInfo, labelMode, value],
+  )
 
   const commit = (v: string) => onChange(smartParse(v))
 
@@ -163,12 +170,14 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
           onChange={setText}
           onOptionSubmit={v => { setText(v); commit(v) }}
           onBlur={() => commit(text)}
-          data={enumInfo.values}
-          filter={makeEnumFilter(enumInfo)}
-          renderOption={AutocompleteRenderOption(enumInfo, labelMode, String(value))}
-          comboboxProps={{ withinPortal: false }}
+          data={dropdownActive ? enumInfo.values : EMPTY_DATA}
+          filter={filter}
+          renderOption={renderOpt}
+          comboboxProps={{ withinPortal: false, transitionProps: { duration: 0 } }}
           scrollAreaProps={{ type: 'always' }}
           limit={Infinity}
+          onDropdownOpen={() => setDropdownActive(true)}
+          onDropdownClose={() => setDropdownActive(false)}
           style={{ flex: 1 }}
           styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
         />
@@ -199,6 +208,12 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
 }) {
   const { goToDefinition, refIndex, labelMode } = useBuffEditor()
   const enumInfo = getEnumInfo(propKey)
+  const [dropdownActive, setDropdownActive] = useState(false)
+  const filter = useMemo(() => enumInfo ? makeEnumFilter(enumInfo) : undefined, [enumInfo])
+  const renderOpt = useMemo(
+    () => enumInfo ? AutocompleteRenderOption(enumInfo, labelMode, value) : undefined,
+    [enumInfo, labelMode, value],
+  )
   const isKnownKey = value && refIndex?.allTemplateKeys.has(value)
   const showLink = isKnownKey || isRefProp(propKey)
 
@@ -210,12 +225,14 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
           size="xs"
           value={value}
           onChange={v => onChange(v)}
-          data={enumInfo.values}
-          filter={makeEnumFilter(enumInfo)}
-          renderOption={AutocompleteRenderOption(enumInfo, labelMode, value)}
-          comboboxProps={{ withinPortal: false }}
+          data={dropdownActive ? enumInfo.values : EMPTY_DATA}
+          filter={filter}
+          renderOption={renderOpt}
+          comboboxProps={{ withinPortal: false, transitionProps: { duration: 0 } }}
           scrollAreaProps={{ type: 'always' }}
           limit={Infinity}
+          onDropdownOpen={() => setDropdownActive(true)}
+          onDropdownClose={() => setDropdownActive(false)}
           style={{ flex: 1 }}
           styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
         />
@@ -411,3 +428,12 @@ function InlineObject({ propKey, value, onChange }: { propKey: string; value: Re
     </Paper>
   )
 }
+
+/** Memoized InlineField for top-level node property lists.
+ *  Skips onChange in comparison — safe when onChange closes over stable refs (useCallback).
+ *  Do NOT use for nested array/object items where onChange captures mutable state. */
+export const MemoInlineField = memo(InlineField, (prev, next) =>
+  prev.propKey === next.propKey &&
+  prev.value === next.value &&
+  prev.parentKey === next.parentKey
+)

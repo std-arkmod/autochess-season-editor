@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import {
   Accordion, Text, Stack, Group, Badge, Paper, UnstyledButton,
   Loader, ActionIcon, Tooltip, Modal, ScrollArea, Table, Tabs, TextInput, Code,
@@ -10,8 +10,8 @@ import { nodeNames, eventLabels, propLabels, tl, tlTip } from './buffEditorI18n'
 
 // ─── Main Panel (sidebar) ───
 
-export function BuffReferencePanel() {
-  const { refIndex, activeKey } = useBuffEditor()
+export const BuffReferencePanel = memo(function BuffReferencePanel({ activeKey, selectedNodeType }: { activeKey: string | null; selectedNodeType: string | null }) {
+  const { refIndex } = useBuffEditor()
   const [entityLoading, setEntityLoading] = useState(false)
   const [entityLoaded, setEntityLoaded] = useState(false)
   const [modalTab, setModalTab] = useState<string | null>(null)
@@ -77,11 +77,11 @@ export function BuffReferencePanel() {
               <Accordion.Control>
                 <Group gap={6}>
                   <Text size="10px">使用示例</Text>
-                  <SelectedNodeBadge />
+                  <SelectedNodeBadge selectedNodeType={selectedNodeType} />
                 </Group>
               </Accordion.Control>
               <Accordion.Panel>
-                <UsageExamplesSection compact />
+                <UsageExamplesSection selectedNodeType={selectedNodeType} compact />
               </Accordion.Panel>
             </Accordion.Item>
 
@@ -106,22 +106,24 @@ export function BuffReferencePanel() {
         activeTab={modalTab}
         onTabChange={setModalTab}
         activeKey={activeKey}
+        selectedNodeType={selectedNodeType}
         entityLoading={entityLoading}
       />
     </>
   )
-}
+})
 
 // ─── Modal ───
 
 function ReferenceModal({
-  opened, onClose, activeTab, onTabChange, activeKey, entityLoading,
+  opened, onClose, activeTab, onTabChange, activeKey, selectedNodeType, entityLoading,
 }: {
   opened: boolean
   onClose: () => void
   activeTab: string | null
   onTabChange: (v: string | null) => void
   activeKey: string
+  selectedNodeType: string | null
   entityLoading: boolean
 }) {
   const { refIndex } = useBuffEditor()
@@ -155,7 +157,7 @@ function ReferenceModal({
             <DependsOnSection activeKey={activeKey} compact={false} />
           </Tabs.Panel>
           <Tabs.Panel value="usage">
-            <UsageExamplesSection compact={false} />
+            <UsageExamplesSection selectedNodeType={selectedNodeType} compact={false} />
           </Tabs.Panel>
           <Tabs.Panel value="graph">
             <DependencyGraphSection activeKey={activeKey} full />
@@ -171,8 +173,8 @@ function ReferenceModal({
 
 // ─── Shared Components ───
 
-function SelectedNodeBadge() {
-  const { selectedNodeType, labelMode } = useBuffEditor()
+function SelectedNodeBadge({ selectedNodeType }: { selectedNodeType: string | null }) {
+  const { labelMode } = useBuffEditor()
   if (!selectedNodeType) return null
   return <Badge size="xs" variant="light" color="teal" title={tlTip(selectedNodeType, nodeNames, labelMode)}>{tl(selectedNodeType, nodeNames, labelMode)}</Badge>
 }
@@ -316,8 +318,8 @@ function DependsOnSection({ activeKey, compact }: { activeKey: string; compact: 
   )
 }
 
-function UsageExamplesSection({ compact }: { compact: boolean }) {
-  const { refIndex, selectedNodeType, goToDefinition, labelMode } = useBuffEditor()
+function UsageExamplesSection({ selectedNodeType, compact }: { selectedNodeType: string | null; compact: boolean }) {
+  const { refIndex, goToDefinition, labelMode } = useBuffEditor()
   if (!refIndex) return null
 
   if (!selectedNodeType) {

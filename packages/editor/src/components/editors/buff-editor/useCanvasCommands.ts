@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import type { Node, Edge } from '@xyflow/react'
 import type { MouseTool } from './mouseTools'
 
 export interface Command {
@@ -14,8 +13,7 @@ export interface Command {
 
 export interface CanvasCommandsProps {
   // State
-  nodes: Node[]
-  edges: Edge[]
+  nodeCount: number
   selectedNodeIds: Set<string>
   selectedEdgeIds: Set<string>
   isReadOnly: boolean
@@ -52,85 +50,89 @@ export interface ContextMenuItem {
 
 export function useCanvasCommands(props: CanvasCommandsProps) {
   const {
-    selectedNodeIds, selectedEdgeIds, isReadOnly,
+    nodeCount, selectedNodeIds, selectedEdgeIds, isReadOnly,
     hasUndo, hasRedo, hasClipboard, activeKey,
+    undo, redo, copyNodes, pasteNodes, cutNodes, duplicateNodes,
+    deleteSelected, selectAll, autoLayout, frameSelected, fitView,
+    disconnectNode, save,
   } = props
 
   const commands = useMemo(() => {
     const hasSelection = selectedNodeIds.size > 0 || selectedEdgeIds.size > 0
     const hasNodeSelection = selectedNodeIds.size > 0
+    const hasNodes = nodeCount > 0
 
     const map = new Map<string, Command>()
 
     const defs: Command[] = [
       {
         id: 'undo', label: '撤销', shortcut: 'Ctrl+Z', icon: 'IconArrowBackUp',
-        execute: props.undo,
+        execute: undo,
         enabled: () => hasUndo && !isReadOnly,
       },
       {
         id: 'redo', label: '重做', shortcut: 'Ctrl+Shift+Z', icon: 'IconArrowForwardUp',
-        execute: props.redo,
+        execute: redo,
         enabled: () => hasRedo && !isReadOnly,
       },
       {
         id: 'copy', label: '复制', shortcut: 'Ctrl+C', icon: 'IconCopy',
-        execute: props.copyNodes,
+        execute: copyNodes,
         enabled: () => hasNodeSelection,
         readOnlyAllowed: true,
       },
       {
         id: 'paste', label: '粘贴', shortcut: 'Ctrl+V', icon: 'IconClipboard',
-        execute: props.pasteNodes,
+        execute: pasteNodes,
         enabled: () => !isReadOnly,
       },
       {
         id: 'cut', label: '剪切', shortcut: 'Ctrl+X', icon: 'IconScissors',
-        execute: props.cutNodes,
+        execute: cutNodes,
         enabled: () => hasNodeSelection && !isReadOnly,
       },
       {
         id: 'duplicate', label: '原地复制', shortcut: 'Ctrl+D', icon: 'IconCopyPlus',
-        execute: props.duplicateNodes,
+        execute: duplicateNodes,
         enabled: () => hasNodeSelection && !isReadOnly,
       },
       {
         id: 'delete', label: '删除', shortcut: 'Delete', icon: 'IconTrash',
-        execute: props.deleteSelected,
+        execute: deleteSelected,
         enabled: () => hasSelection && !isReadOnly,
       },
       {
         id: 'selectAll', label: '全选', shortcut: 'Ctrl+A', icon: 'IconSelectAll',
-        execute: props.selectAll,
-        enabled: () => (props.nodes.length > 0),
+        execute: selectAll,
+        enabled: () => hasNodes,
         readOnlyAllowed: true,
       },
       {
         id: 'autoLayout', label: '自动布局', shortcut: 'Ctrl+Shift+L', icon: 'IconLayoutAlignBottom',
-        execute: props.autoLayout,
-        enabled: () => props.nodes.length > 0,
+        execute: autoLayout,
+        enabled: () => hasNodes,
         readOnlyAllowed: true,
       },
       {
         id: 'frameSelected', label: '聚焦选中', shortcut: 'F', icon: 'IconFocusCentered',
-        execute: props.frameSelected,
+        execute: frameSelected,
         enabled: () => hasNodeSelection,
         readOnlyAllowed: true,
       },
       {
         id: 'fitView', label: '适应画布', shortcut: 'Home', icon: 'IconMaximize',
-        execute: props.fitView,
-        enabled: () => props.nodes.length > 0,
+        execute: fitView,
+        enabled: () => hasNodes,
         readOnlyAllowed: true,
       },
       {
         id: 'disconnect', label: '断开连接', shortcut: 'Alt+D', icon: 'IconUnlink',
-        execute: props.disconnectNode,
+        execute: disconnectNode,
         enabled: () => hasNodeSelection && !isReadOnly,
       },
       {
         id: 'save', label: '保存', shortcut: 'Ctrl+S',
-        execute: props.save,
+        execute: save,
         enabled: () => !!activeKey && !isReadOnly,
       },
     ]
@@ -138,9 +140,11 @@ export function useCanvasCommands(props: CanvasCommandsProps) {
     for (const cmd of defs) map.set(cmd.id, cmd)
     return map
   }, [
-    selectedNodeIds, selectedEdgeIds, isReadOnly,
+    nodeCount, selectedNodeIds, selectedEdgeIds, isReadOnly,
     hasUndo, hasRedo, hasClipboard, activeKey,
-    props,
+    undo, redo, copyNodes, pasteNodes, cutNodes, duplicateNodes,
+    deleteSelected, selectAll, autoLayout, frameSelected, fitView,
+    disconnectNode, save,
   ])
 
   const hotkeyBindings = useMemo((): Array<[string, (e: KeyboardEvent) => void]> => {
@@ -184,7 +188,7 @@ export function useCanvasCommands(props: CanvasCommandsProps) {
     }
 
     return bindings
-  }, [commands, props])
+  }, [commands, props.setActiveTool])
 
   const getContextMenuItems = useMemo(() => {
     return (type: ContextMenuType): ContextMenuItem[] => {

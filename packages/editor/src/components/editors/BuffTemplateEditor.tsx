@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, type RefObject } from 'react'
 import { Box, Text, Stack, Progress, SegmentedControl, Loader } from '@mantine/core'
 import { useHotkeys } from '@mantine/hooks'
 import type { Node, Edge } from '@xyflow/react'
@@ -85,6 +85,10 @@ function buildEventOptions(mode: 'cn' | 'raw' | 'rawOnly') {
     }),
   }))
 }
+
+// Stable no-op callback to avoid breaking memo on child components
+const NOOP = () => {}
+const NOOP2 = (_a: string, _b: string) => {}
 
 const MAX_UNDO = 30
 const CLIPBOARD_MARKER = 'buff-editor-clipboard'
@@ -196,11 +200,15 @@ export function BuffTemplateEditor({ store }: Props) {
     })
   }, [])
 
-  // Refs for race-condition-free saving
+  // Refs for race-condition-free saving and stable callbacks
   const nodesRef = useRef(nodes)
   const edgesRef = useRef(edges)
+  const buffTemplatesRef = useRef(buffTemplates)
+  const refTemplatesRef = useRef(refTemplates)
   useEffect(() => { nodesRef.current = nodes }, [nodes])
   useEffect(() => { edgesRef.current = edges }, [edges])
+  buffTemplatesRef.current = buffTemplates
+  refTemplatesRef.current = refTemplates
 
 
   // ── Undo / Redo ──
@@ -438,13 +446,14 @@ export function BuffTemplateEditor({ store }: Props) {
     saveGraph()
   }, [saveGraph])
 
-  // Select template
+  // Select template — uses refs for buffTemplates/refTemplates/saveGraph to keep
+  // this callback stable and avoid cascading context invalidation.
   const selectTemplate = useCallback((key: string) => {
     if (!isReadOnly && saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current); saveTimerRef.current = null; saveGraph()
+      clearTimeout(saveTimerRef.current); saveTimerRef.current = null; saveGraphRef.current()
     }
-    const isFromUser = key in buffTemplates
-    const template = buffTemplates[key] ?? refTemplates?.[key]
+    const isFromUser = key in buffTemplatesRef.current
+    const template = buffTemplatesRef.current[key] ?? refTemplatesRef.current?.[key]
     if (!template) return
     setActiveKey(key)
     setIsReadOnly(!isFromUser || !activeSeason)
@@ -461,7 +470,7 @@ export function BuffTemplateEditor({ store }: Props) {
     requestAnimationFrame(() => {
       reactFlowApiRef.current?.fitView({ padding: 0.1 })
     })
-  }, [buffTemplates, refTemplates, isReadOnly, activeSeason, saveGraph])
+  }, [isReadOnly, activeSeason])
 
   const createTemplate = useCallback((key: string) => {
     updateTemplates({ ...buffTemplates, [key]: { templateKey: key, effectKey: '', onEventPriority: 'DEFAULT', eventToActions: {} } })
@@ -505,11 +514,13 @@ export function BuffTemplateEditor({ store }: Props) {
 
   // Reactive multi-condition slot management: compact empty gaps, re-index edges, keep one trailing empty.
   // Runs as an effect so it catches ALL edge change paths (connect, delete, cut, reconnect, node search, etc.)
+  // Uses nodesRef instead of nodes to avoid firing on position-only drag changes.
   useEffect(() => {
     if (isReadOnly) return
+    const currentNodes = nodesRef.current
     // Find multi-condition nodes
     const multiCondNodeIds = new Set<string>()
-    for (const n of nodes) {
+    for (const n of currentNodes) {
       const d = n.data as any
       if (getSchema(d?.nodeType ?? '').hasMultiCondition) multiCondNodeIds.add(n.id)
     }
@@ -531,7 +542,7 @@ export function BuffTemplateEditor({ store }: Props) {
     const remapByNode = new Map<string, Map<number, number>>()
     const newArrByNode = new Map<string, unknown[]>()
     for (const nodeId of multiCondNodeIds) {
-      const node = nodes.find(n => n.id === nodeId)
+      const node = currentNodes.find(n => n.id === nodeId)
       if (!node) continue
       const d = node.data as any
       const arr: unknown[] = Array.isArray(d.actionNode?._conditionsNode) ? d.actionNode._conditionsNode : []
@@ -574,13 +585,18 @@ export function BuffTemplateEditor({ store }: Props) {
       return { ...n, data: { ...n.data, actionNode: { ...d.actionNode, _conditionsNode: newArr } } }
     }))
     debouncedSave()
-  }, [edges, nodes, isReadOnly])
+  }, [edges, isReadOnly])
 
   const handleNodesChange = useCallback((n: Node[]) => {
+    const prev = nodesRef.current
     // Only push undo for structural changes (add/remove), not position/selection
-    if (!isReadOnly && n.length !== nodesRef.current.length) pushUndo()
+    if (!isReadOnly && n.length !== prev.length) pushUndo()
     setNodes(n)
-    if (!isReadOnly) debouncedSave()
+    // Only save for structural/data changes — graphToTree ignores positions,
+    // so skip save during drag to avoid wasted work + timer churn
+    if (!isReadOnly && (n.length !== prev.length || n.some((nd, i) => nd.data !== prev[i]?.data || nd.type !== prev[i]?.type))) {
+      debouncedSave()
+    }
   }, [isReadOnly, debouncedSave, pushUndo])
 
   const handleEdgesChange = useCallback((e: Edge[]) => {
@@ -781,18 +797,18 @@ export function BuffTemplateEditor({ store }: Props) {
   }, [isReadOnly, nodeSearchMenu, pushUndo, edgeStyle, debouncedSave, buildNewNodeData])
 
   const goToDefinition = useCallback((templateKey: string) => {
-    if (templateKey in buffTemplates) {
+    if (templateKey in buffTemplatesRef.current) {
       setListMode('user')
-    } else if (refTemplates && templateKey in refTemplates) {
+    } else if (refTemplatesRef.current && templateKey in refTemplatesRef.current) {
       setListMode('ref')
     }
     selectTemplate(templateKey)
     setRightPanel('references')
-  }, [buffTemplates, refTemplates, selectTemplate])
+  }, [selectTemplate])
 
   // ── Command system ──
   const { commands, hotkeyBindings, getContextMenuItems } = useCanvasCommands({
-    nodes, edges, selectedNodeIds, selectedEdgeIds,
+    nodeCount: nodes.length, selectedNodeIds, selectedEdgeIds,
     isReadOnly, hasUndo: undoLen > 0, hasRedo: redoLen > 0,
     hasClipboard, activeKey,
     undo, redo, copyNodes, pasteNodes, cutNodes, duplicateNodes,
@@ -826,12 +842,10 @@ export function BuffTemplateEditor({ store }: Props) {
     goToDefinition,
     refIndex,
     refTemplates,
-    activeKey,
-    selectedNodeType,
     labelMode,
     isReadOnly,
     onPropertyEdit: handlePropertyEdit,
-  }), [goToDefinition, refIndex, refTemplates, activeKey, selectedNodeType, labelMode, isReadOnly, handlePropertyEdit])
+  }), [goToDefinition, refIndex, refTemplates, labelMode, isReadOnly, handlePropertyEdit])
 
   const displayedTemplates = listMode === 'ref' ? (refTemplates ?? {}) : buffTemplates
 
@@ -875,9 +889,9 @@ export function BuffTemplateEditor({ store }: Props) {
                 templates={refTemplates ?? {}}
                 activeKey={activeKey}
                 onSelect={selectTemplate}
-                onCreate={() => {}}
-                onDelete={() => {}}
-                onDuplicate={() => {}}
+                onCreate={NOOP}
+                onDelete={NOOP}
+                onDuplicate={NOOP2}
                 readOnly
               />
             </Box>
@@ -901,8 +915,8 @@ export function BuffTemplateEditor({ store }: Props) {
                 templates={displayedTemplates}
                 activeKey={activeKey}
                 onSelect={selectTemplate}
-                onCreate={listMode === 'user' ? createTemplate : () => {}}
-                onDelete={listMode === 'user' ? deleteTemplate : () => {}}
+                onCreate={listMode === 'user' ? createTemplate : NOOP}
+                onDelete={listMode === 'user' ? deleteTemplate : NOOP}
                 onDuplicate={duplicateTemplate}
                 readOnly={listMode === 'ref'}
               />
@@ -973,7 +987,7 @@ export function BuffTemplateEditor({ store }: Props) {
             {rightPanel === 'palette' ? (
               <BuffNodePalette onAddNode={addNodeFromPalette} />
             ) : (
-              <BuffReferencePanel />
+              <BuffReferencePanel activeKey={activeKey} selectedNodeType={selectedNodeType} />
             )}
           </Box>
         </Box>

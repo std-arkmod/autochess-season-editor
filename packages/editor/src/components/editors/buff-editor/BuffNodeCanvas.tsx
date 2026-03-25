@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useEffect, useState, useRef } from 'react'
+import { useCallback, useMemo, useEffect, useState, useRef, type RefObject } from 'react'
 import {
   ReactFlow,
   Background,
@@ -91,6 +91,13 @@ function BuffNodeCanvasInner({
 }: Props) {
   const reactFlow = useReactFlow()
 
+  // Refs to stabilize callbacks — prevents ReactFlow from receiving new
+  // function props every drag frame (nodes/edges change on every position update)
+  const nodesRef = useRef(nodes) as RefObject<Node[]>
+  nodesRef.current = nodes
+  const edgesRef = useRef(edges) as RefObject<Edge[]>
+  edgesRef.current = edges
+
   useEffect(() => {
     if (onReactFlowReady) {
       onReactFlowReady({
@@ -106,20 +113,20 @@ function BuffNodeCanvasInner({
     (changes) => {
       const filtered = changes.filter(c => c.type !== 'remove')
       if (filtered.length === 0) return
-      const updated = applyNodeChanges(filtered, nodes)
+      const updated = applyNodeChanges(filtered, nodesRef.current)
       onNodesChange(updated as Node[])
     },
-    [nodes, onNodesChange],
+    [onNodesChange],
   )
 
   const handleEdgesChange: OnEdgesChange = useCallback(
     (changes) => {
       const filtered = changes.filter(c => c.type !== 'remove')
       if (filtered.length === 0) return
-      const updated = applyEdgeChanges(filtered, edges)
+      const updated = applyEdgeChanges(filtered, edgesRef.current)
       onEdgesChange(updated as Edge[])
     },
-    [edges, onEdgesChange],
+    [onEdgesChange],
   )
 
   // ── Connection validation ──
@@ -150,6 +157,7 @@ function BuffNodeCanvasInner({
     }
 
     // BFS from connection.target to detect cycle
+    const currentEdges = edgesRef.current
     const visited = new Set<string>()
     const queue = [connection.target]
     while (queue.length > 0) {
@@ -159,12 +167,12 @@ function BuffNodeCanvasInner({
       }
       if (visited.has(nodeId)) continue
       visited.add(nodeId)
-      for (const e of edges) {
+      for (const e of currentEdges) {
         if (e.source === nodeId) queue.push(e.target)
       }
     }
     return { valid: true }
-  }, [edges])
+  }, [])
 
   // Visual validation — controls connectionStatus for line color (red on invalid)
   const isValidConnection = useCallback((connection: Connection | Edge) => {
@@ -199,7 +207,8 @@ function BuffNodeCanvasInner({
   const handleConnect: OnConnect = useCallback(
     (connection: Connection) => {
       // One-to-one: remove any existing edge on the same source handle or target handle
-      const filtered = edges.filter(e => {
+      const currentEdges = edgesRef.current
+      const filtered = currentEdges.filter(e => {
         if (e.source === connection.source && e.sourceHandle === connection.sourceHandle) return false
         if (e.target === connection.target && e.targetHandle === connection.targetHandle) return false
         return true
@@ -207,7 +216,7 @@ function BuffNodeCanvasInner({
       const updated = addEdge({ ...connection, type: edgeStyle }, filtered)
       onEdgesChange(updated)
     },
-    [edges, onEdgesChange, edgeStyle, validateConnection, showConnToast],
+    [onEdgesChange, edgeStyle],
   )
 
   // ── Edge reconnection: drag edge endpoint to re-route ──
@@ -223,7 +232,8 @@ function BuffNodeCanvasInner({
       if (!valid) { if (reason) showConnToast(reason); return }
       reconnectSuccessful.current = true
       // Remove old edge + any existing edge on the new handle (one-to-one)
-      const without = edges.filter(e => {
+      const currentEdges = edgesRef.current
+      const without = currentEdges.filter(e => {
         if (e.id === oldEdge.id) return false
         if (e.source === newConnection.source && e.sourceHandle === newConnection.sourceHandle) return false
         if (e.target === newConnection.target && e.targetHandle === newConnection.targetHandle) return false
@@ -232,18 +242,18 @@ function BuffNodeCanvasInner({
       const updated = addEdge({ ...newConnection, type: edgeStyle }, without)
       onEdgesChange(updated)
     },
-    [edges, onEdgesChange, edgeStyle, validateConnection, showConnToast],
+    [onEdgesChange, edgeStyle, validateConnection, showConnToast],
   )
 
   const handleReconnectEnd = useCallback(
     (_event: MouseEvent | TouchEvent, edge: Edge) => {
       if (!reconnectSuccessful.current) {
         // Dragged to void — remove the edge
-        onEdgesChange(edges.filter(e => e.id !== edge.id))
+        onEdgesChange(edgesRef.current.filter(e => e.id !== edge.id))
       }
       reconnectSuccessful.current = false
     },
-    [edges, onEdgesChange],
+    [onEdgesChange],
   )
 
   const handleSelectionChange = useCallback(
