@@ -100,13 +100,33 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
     const el = nodeRootRef.current
     if (!el) return
     const handler = (e: MouseEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName
+      const target = e.target as HTMLElement
+      if (!target) return
+      const tag = target.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        e.stopPropagation()
+        return
+      }
+      // Prevent D3 drag from intercepting clicks on Mantine combobox dropdown options.
+      // Also preventDefault to keep input focused (mimics Mantine's own onMouseDown
+      // which we blocked via stopPropagation before it reached React delegation).
+      if (target.closest('[role="listbox"]')) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+    const wheelHandler = (e: WheelEvent) => {
+      // Prevent ReactFlow zoom when scrolling inside a combobox dropdown
+      if ((e.target as HTMLElement)?.closest('[role="listbox"]')) {
         e.stopPropagation()
       }
     }
     el.addEventListener('mousedown', handler)
-    return () => el.removeEventListener('mousedown', handler)
+    el.addEventListener('wheel', wheelHandler, { passive: true })
+    return () => {
+      el.removeEventListener('mousedown', handler)
+      el.removeEventListener('wheel', wheelHandler)
+    }
   }, [])
 
   return (

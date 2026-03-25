@@ -3,6 +3,7 @@ import {
   TextInput, Autocomplete, Switch, Group, Text,
   ActionIcon, Tooltip, Collapse, Stack, Paper,
 } from '@mantine/core'
+import type { OptionsFilter } from '@mantine/core'
 import {
   IconChevronRight, IconChevronDown, IconPlus, IconTrash,
   IconArrowUp, IconArrowDown, IconExternalLink,
@@ -99,14 +100,38 @@ export function InlineField({ propKey, value, onChange, examples, parentKey }: P
 
 // ── Shared Autocomplete render for enum options with CN labels ──
 
-function AutocompleteRenderOption(enumInfo: EnumInfo, mode: LabelMode) {
+function AutocompleteRenderOption(enumInfo: EnumInfo, mode: LabelMode, selectedValue?: string) {
   return ({ option }: { option: { value: string; label: string } }) => {
     const cn = enumInfo.labelMap[option.value]
-    if (!cn || mode === 'rawOnly') return <>{option.value}</>
+    const isCur = selectedValue !== undefined && option.value === selectedValue
+    const fw: React.CSSProperties | undefined = isCur ? { fontWeight: 700, color: 'var(--mantine-color-blue-4)' } : undefined
+    // Scroll selected option into view when dropdown opens
+    const scrollRef = isCur
+      ? (el: HTMLElement | null) => { if (el) requestAnimationFrame(() => el.closest('[role="option"]')?.scrollIntoView({ block: 'nearest' })) }
+      : undefined
+    if (!cn || mode === 'rawOnly') return <span ref={scrollRef} style={fw}>{isCur && '● '}{option.value}</span>
     if (mode === 'cn') {
-      return <span>{cn} <span style={{ opacity: 0.5, fontSize: '9px' }}>({option.value})</span></span>
+      return <span ref={scrollRef} style={fw}>{isCur && '● '}{cn} <span style={{ opacity: 0.5, fontSize: '9px' }}>({option.value})</span></span>
     }
-    return <span>{option.value} <span style={{ opacity: 0.5, fontSize: '9px' }}>{cn}</span></span>
+    return <span ref={scrollRef} style={fw}>{isCur && '● '}{option.value} <span style={{ opacity: 0.5, fontSize: '9px' }}>{cn}</span></span>
+  }
+}
+
+/** Show all options when input matches a known value (reopened after select); otherwise filter by substring */
+function makeEnumFilter(enumInfo: EnumInfo): OptionsFilter {
+  const valueSet = new Set(enumInfo.values)
+  return ({ options, search }) => {
+    if (valueSet.has(search)) return options
+    if (!search) return options
+    const lower = search.toLowerCase()
+    const filtered = options.filter(o => {
+      if ('group' in o) return true
+      if (o.value.toLowerCase().includes(lower)) return true
+      const cn = enumInfo.labelMap[o.value]
+      return cn ? cn.toLowerCase().includes(lower) : false
+    })
+    // Custom value not matching any option → show all instead of empty
+    return filtered.length > 0 ? filtered : options
   }
 }
 
@@ -141,7 +166,10 @@ function InlineNumberField({ propKey, value, onChange, label, tip }: {
           onOptionSubmit={v => { setText(v); commit(v) }}
           onBlur={() => commit(text)}
           data={enumInfo.values}
-          renderOption={AutocompleteRenderOption(enumInfo, labelMode)}
+          filter={makeEnumFilter(enumInfo)}
+          renderOption={AutocompleteRenderOption(enumInfo, labelMode, String(value))}
+          comboboxProps={{ withinPortal: false }}
+          scrollAreaProps={{ type: 'always' }}
           limit={Infinity}
           style={{ flex: 1 }}
           styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
@@ -185,7 +213,10 @@ function InlineStringField({ propKey, value, onChange, label, tip }: {
           value={value}
           onChange={v => onChange(v)}
           data={enumInfo.values}
-          renderOption={AutocompleteRenderOption(enumInfo, labelMode)}
+          filter={makeEnumFilter(enumInfo)}
+          renderOption={AutocompleteRenderOption(enumInfo, labelMode, value)}
+          comboboxProps={{ withinPortal: false }}
+          scrollAreaProps={{ type: 'always' }}
           limit={Infinity}
           style={{ flex: 1 }}
           styles={{ input: { height: 24, minHeight: 24, fontSize: 11 } }}
