@@ -20,6 +20,7 @@ import { useCanvasCommands, type ContextMenuType } from './buff-editor/useCanvas
 import { buildBuffIndex, type BuffReferenceIndex } from './buff-editor/buffReferenceIndex'
 import { mergeUserTemplateKeys } from './buff-editor/enumRegistry'
 import { eventLabels } from './buff-editor/buffEditorI18n'
+import { ResizablePanel } from './buff-editor/ResizablePanel'
 
 interface Props {
   store: DataStore
@@ -875,11 +876,7 @@ export function BuffTemplateEditor({ store, viewerOnly }: Props) {
       )}
 
       {/* Left: Template list */}
-      <Box style={{
-        width: 220, flexShrink: 0,
-        borderRight: '1px solid var(--mantine-color-dark-4)',
-        padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
-      }}>
+      <ResizablePanel side="left" defaultWidth={220} minWidth={160} maxWidth={500}>
         {noSeason ? (
           <>
             {!viewerOnly && <Text size="xs" c="dimmed" ta="center" py={4}>未选择赛季，仅可浏览游戏参考</Text>}
@@ -925,7 +922,7 @@ export function BuffTemplateEditor({ store, viewerOnly }: Props) {
             </Box>
           </>
         )}
-      </Box>
+      </ResizablePanel>
 
       {/* Center: Canvas + toolbar */}
       <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -972,41 +969,37 @@ export function BuffTemplateEditor({ store, viewerOnly }: Props) {
       </Box>
 
       {/* Right: Node palette / References */}
-      {activeKey && (viewerOnly ? (
-        <Box style={{
-          width: 260, flexShrink: 0,
-          borderLeft: '1px solid var(--mantine-color-dark-4)',
-          overflow: 'hidden', padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
-        }}>
-          <Text size="xs" fw={600} py={4}>引用分析</Text>
-          <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            <BuffReferencePanel activeKey={activeKey} selectedNodeType={selectedNodeType} />
-          </Box>
-        </Box>
-      ) : (
-        <Box style={{
-          width: 260, flexShrink: 0,
-          borderLeft: '1px solid var(--mantine-color-dark-4)',
-          overflow: 'hidden', padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
-        }}>
-          <SegmentedControl
-            size="xs" fullWidth
-            value={rightPanel}
-            onChange={v => setRightPanel(v as 'palette' | 'references')}
-            data={[
-              { value: 'palette', label: '节点面板' },
-              { value: 'references', label: '引用分析' },
-            ]}
-          />
-          <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            {rightPanel === 'palette' ? (
-              <BuffNodePalette onAddNode={addNodeFromPalette} />
-            ) : (
-              <BuffReferencePanel activeKey={activeKey} selectedNodeType={selectedNodeType} />
-            )}
-          </Box>
-        </Box>
-      ))}
+      {activeKey && (
+        <ResizablePanel side="right" defaultWidth={260} minWidth={180} maxWidth={500}>
+          {viewerOnly ? (
+            <>
+              <Text size="xs" fw={600} py={4}>引用分析</Text>
+              <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                <BuffReferencePanel activeKey={activeKey} selectedNodeType={selectedNodeType} />
+              </Box>
+            </>
+          ) : (
+            <>
+              <SegmentedControl
+                size="xs" fullWidth
+                value={rightPanel}
+                onChange={v => setRightPanel(v as 'palette' | 'references')}
+                data={[
+                  { value: 'palette', label: '节点面板' },
+                  { value: 'references', label: '引用分析' },
+                ]}
+              />
+              <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                {rightPanel === 'palette' ? (
+                  <BuffNodePalette onAddNode={addNodeFromPalette} />
+                ) : (
+                  <BuffReferencePanel activeKey={activeKey} selectedNodeType={selectedNodeType} />
+                )}
+              </Box>
+            </>
+          )}
+        </ResizablePanel>
+      )}
 
       {/* Context menu */}
       <CanvasContextMenu

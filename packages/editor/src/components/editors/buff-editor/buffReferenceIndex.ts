@@ -170,9 +170,11 @@ export async function buildEntityOwnerIndex(
       fetch('/enemy_handbook_table.json').catch(() => null),
     ])
 
-    if (charRes?.ok) {
+    const isJson = (r: Response | null) => r?.ok && (r.headers.get('content-type') ?? '').includes('json')
+
+    if (isJson(charRes)) {
       onProgress?.('解析角色数据...')
-      const chars = await charRes.json() as Record<string, any>
+      const chars = await charRes!.json() as Record<string, any>
       for (const [charId, char] of Object.entries(chars)) {
         if (!char?.name) continue
         const name = char.name as string
@@ -221,9 +223,9 @@ export async function buildEntityOwnerIndex(
       }
     }
 
-    if (enemyRes?.ok) {
+    if (isJson(enemyRes)) {
       onProgress?.('解析敌人数据...')
-      const enemies = await enemyRes.json() as Record<string, any>
+      const enemies = await enemyRes!.json() as Record<string, any>
       // enemy_handbook_table has enemyData
       const enemyData = enemies.enemyData ?? enemies
       for (const [enemyId, info] of Object.entries(enemyData as Record<string, any>)) {
