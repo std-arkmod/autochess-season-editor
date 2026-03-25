@@ -10,7 +10,7 @@ import App from './App.tsx'
 const theme = createTheme({
   primaryColor: 'teal',
   defaultRadius: 'md',
-  fontFamily: '"Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+  fontFamily: '"Frex Sans GB VF", "Source Han Sans SC", "Noto Sans SC", sans-serif',
 })
 
 createRoot(document.getElementById('root')!).render(

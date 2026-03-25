@@ -330,23 +330,23 @@ function BuffNodeCanvasInner({
   const isPan = activeTool === 'pan'
   const isOverlayTool = activeTool === 'knife' || activeTool === 'comment'
 
-  // panOnDrag: array of mouse buttons that trigger pan
-  // select: middle+right pan; pan: all buttons pan; knife/comment: middle+right pan
-  const panOnDrag = useMemo<number[] | boolean>(() => {
-    if (isPan) return [0, 1, 2]
-    return [1, 2]
-  }, [isPan])
-
-  // selectionOnDrag: only for select tool (left-drag on empty = box select)
-  const selectionOnDrag = isSelect
-
-  // nodesDraggable: not for pan/knife/comment tools
-  const nodesDraggable = isSelect
-
   // Track Space key for temporary pan cursor
   const [spaceHeld, setSpaceHeld] = useState(false)
   // Track Shift key for horizontal scroll
   const [shiftHeld, setShiftHeld] = useState(false)
+
+  // panOnDrag: array of mouse buttons that trigger pan
+  // select: middle+right pan; pan: all buttons pan; knife/comment: middle+right pan
+  const panOnDrag = useMemo<number[] | boolean>(() => {
+    if (isPan || spaceHeld) return [0, 1, 2]
+    return [1, 2]
+  }, [isPan, spaceHeld])
+
+  // selectionOnDrag: only for select tool, disabled when space held (panning)
+  const selectionOnDrag = isSelect && !spaceHeld
+
+  // nodesDraggable: not for pan/knife/comment tools, disabled when space held
+  const nodesDraggable = isSelect && !spaceHeld
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Space') setSpaceHeld(true)
