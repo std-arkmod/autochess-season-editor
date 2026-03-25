@@ -40,7 +40,7 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps) {
   const color = isEvent ? '#2980b9' : (categoryColors[schema.category] ?? '#7f8c8d')
 
   const actionNode: Record<string, any> = d.actionNode ?? {}
-  const properties = Object.entries(actionNode).filter(([k]) => !TREE_KEYS.has(k))
+  const properties = Object.entries(actionNode).filter(([k]) => !TREE_KEYS.has(k)).sort(([a], [b]) => a.localeCompare(b))
 
   const hasBranches = schema.hasBranches
   const hasCondition = schema.hasCondition
