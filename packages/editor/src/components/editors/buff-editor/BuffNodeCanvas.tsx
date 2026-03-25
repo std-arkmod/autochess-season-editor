@@ -81,6 +81,7 @@ interface Props {
     handleType: 'source' | 'target' | null
     screenPosition: { x: number; y: number }
   }) => void
+  nodesConnectable?: boolean
 }
 
 function BuffNodeCanvasInner({
@@ -88,6 +89,7 @@ function BuffNodeCanvasInner({
   onNodesChange, onEdgesChange, onNodeSelect, onDrop,
   onPaneContextMenu, onNodeContextMenu, onEdgeContextMenu, onSelectionContextMenu,
   onSelectionUpdate, onReactFlowReady, onCutEdges, onCreateComment, onConnectEndEmpty,
+  nodesConnectable = true,
 }: Props) {
   const reactFlow = useReactFlow()
 
@@ -407,6 +409,7 @@ function BuffNodeCanvasInner({
         zoomActivationKeyCode=" "
         selectionOnDrag={selectionOnDrag}
         selectionMode={SelectionMode.Partial}
+        nodesConnectable={nodesConnectable}
         nodesDraggable={nodesDraggable}
         fitView
         proOptions={{ hideAttribution: true }}

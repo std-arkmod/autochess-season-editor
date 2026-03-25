@@ -23,6 +23,7 @@ const toolIconMap: Record<string, React.FC<{ size?: number }>> = {
 interface Props {
   activeKey: string
   isReadOnly: boolean
+  viewerOnly?: boolean
   commands: Map<string, Command>
   activeTool: MouseTool
   onToolChange: (tool: MouseTool) => void
@@ -49,13 +50,64 @@ function CmdButton({ cmd }: { cmd: Command }) {
 }
 
 export const BuffEditorToolbar = memo(function BuffEditorToolbar({
-  activeKey, isReadOnly, commands,
+  activeKey, isReadOnly, viewerOnly, commands,
   activeTool, onToolChange,
   eventOptions, onAddEvent,
   edgeStyle, onEdgeStyleChange,
   labelMode, onLabelModeChange,
 }: Props) {
   const cmd = (id: string) => commands.get(id)!
+
+  if (viewerOnly) {
+    return (
+      <Group gap="xs" px="sm" py={6} style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', flexShrink: 0 }} wrap="nowrap">
+        <Text size="xs" fw={600} style={{ flexShrink: 0 }}>{activeKey}</Text>
+
+        <Divider orientation="vertical" />
+
+        {/* Copy */}
+        <CmdButton cmd={cmd('copy')} />
+
+        <Divider orientation="vertical" />
+
+        {/* Layout operations */}
+        <Group gap={2} wrap="nowrap">
+          <CmdButton cmd={cmd('autoLayout')} />
+          <CmdButton cmd={cmd('frameSelected')} />
+          <CmdButton cmd={cmd('fitView')} />
+        </Group>
+
+        <Divider orientation="vertical" />
+
+        <CmdButton cmd={cmd('selectAll')} />
+
+        {/* Right-aligned controls */}
+        <Group gap="xs" wrap="nowrap" style={{ marginLeft: 'auto' }}>
+          <Select
+            size="xs" value={edgeStyle}
+            onChange={v => v && onEdgeStyleChange(v as EdgeStyle)}
+            data={[
+              { value: 'default', label: '曲线' },
+              { value: 'straight', label: '直线' },
+              { value: 'step', label: '直角' },
+              { value: 'smoothstep', label: '圆角直角' },
+            ]}
+            style={{ width: 110 }} allowDeselect={false}
+          />
+          <SegmentedControl
+            size="xs"
+            value={labelMode}
+            onChange={v => onLabelModeChange(v as 'cn' | 'raw' | 'rawOnly')}
+            data={[
+              { value: 'cn', label: '中文' },
+              { value: 'raw', label: '原文' },
+              { value: 'rawOnly', label: '纯原文' },
+            ]}
+          />
+        </Group>
+      </Group>
+    )
+  }
 
   return (
     <Group gap="xs" px="sm" py={6} style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', flexShrink: 0 }} wrap="nowrap">

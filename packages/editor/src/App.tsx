@@ -74,7 +74,7 @@ function BuffViewerApp() {
         <Text size="xs" c="dimmed">明日方舟 Buff 模板查看器</Text>
       </Group>
       <Box style={{ flex: 1, overflow: 'hidden' }}>
-        <BuffTemplateEditor store={store} />
+        <BuffTemplateEditor store={store} viewerOnly />
       </Box>
     </Box>
   )
@@ -287,7 +287,7 @@ export default function App() {
             <Text size="xs" c="dimmed">只读模式</Text>
           </Group>
           <Box style={{ flex: 1, overflow: 'hidden' }}>
-            <BuffTemplateEditor store={store} />
+            <BuffTemplateEditor store={store} viewerOnly />
           </Box>
         </Box>
 

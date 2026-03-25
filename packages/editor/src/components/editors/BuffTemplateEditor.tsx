@@ -23,6 +23,8 @@ import { eventLabels } from './buff-editor/buffEditorI18n'
 
 interface Props {
   store: DataStore
+  /** Hide toolbar, right panel, and other editor-only UI */
+  viewerOnly?: boolean
 }
 
 const ALL_EVENTS = [
@@ -99,7 +101,7 @@ let _cachedRefTemplates: Record<string, BuffTemplate> | null = null
 let _cachedRefIndex: BuffReferenceIndex | null = null
 let _loadingPromise: Promise<unknown> | null = null
 
-export function BuffTemplateEditor({ store }: Props) {
+export function BuffTemplateEditor({ store, viewerOnly }: Props) {
   const { activeSeason, activeSeasonId, updateSeason } = store
   const data = activeSeason?.data
   const buffTemplates: Record<string, BuffTemplate> = (data as any)?.buffTemplates ?? {}
@@ -880,7 +882,7 @@ export function BuffTemplateEditor({ store }: Props) {
       }}>
         {noSeason ? (
           <>
-            <Text size="xs" c="dimmed" ta="center" py={4}>未选择赛季，仅可浏览游戏参考</Text>
+            {!viewerOnly && <Text size="xs" c="dimmed" ta="center" py={4}>未选择赛季，仅可浏览游戏参考</Text>}
             {!refTemplates && !loadingPhase && (
               <Text size="xs" c="dimmed" ta="center">加载失败，刷新重试</Text>
             )}
@@ -931,6 +933,7 @@ export function BuffTemplateEditor({ store }: Props) {
           <BuffEditorToolbar
             activeKey={activeKey}
             isReadOnly={isReadOnly}
+            viewerOnly={viewerOnly}
             commands={commands}
             activeTool={activeTool}
             onToolChange={setActiveTool}
@@ -958,17 +961,29 @@ export function BuffTemplateEditor({ store }: Props) {
               onCutEdges={handleCutEdges}
               onCreateComment={handleCreateComment}
               onConnectEndEmpty={handleConnectEndEmpty}
+              nodesConnectable={!isReadOnly}
             />
           ) : (
             <Stack align="center" justify="center" style={{ height: '100%' }}>
-              <Text c="dimmed">{noSeason ? '请先选择一个赛季' : '选择一个模板开始编辑，或创建新模板'}</Text>
+              <Text c="dimmed">{viewerOnly ? '从左侧列表选择一个模板查看' : noSeason ? '请先选择一个赛季' : '选择一个模板开始编辑，或创建新模板'}</Text>
             </Stack>
           )}
         </Box>
       </Box>
 
       {/* Right: Node palette / References */}
-      {activeKey && (
+      {activeKey && (viewerOnly ? (
+        <Box style={{
+          width: 260, flexShrink: 0,
+          borderLeft: '1px solid var(--mantine-color-dark-4)',
+          overflow: 'hidden', padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
+        }}>
+          <Text size="xs" fw={600} py={4}>引用分析</Text>
+          <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <BuffReferencePanel activeKey={activeKey} selectedNodeType={selectedNodeType} />
+          </Box>
+        </Box>
+      ) : (
         <Box style={{
           width: 260, flexShrink: 0,
           borderLeft: '1px solid var(--mantine-color-dark-4)',
@@ -991,7 +1006,7 @@ export function BuffTemplateEditor({ store }: Props) {
             )}
           </Box>
         </Box>
-      )}
+      ))}
 
       {/* Context menu */}
       <CanvasContextMenu
