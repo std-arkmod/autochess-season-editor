@@ -40,19 +40,19 @@ function makeDefaultShopChess(chessId: string, goldenChessId: string): CharShopC
   }
 }
 
-function makeDefaultChessData(chessId: string, identifier: number, isGolden: boolean): CharChessDataDict {
+function makeDefaultChessData(chessId: string,goldenChessId:string,identifier: number, isGolden: boolean,): CharChessDataDict {
   return {
     chessId,
     identifier,
     isGolden,
     status: {
       evolvePhase: isGolden ? 'PHASE_2' : 'PHASE_1',
-      charLevel: isGolden ? 70 : 40,
-      skillLevel: isGolden ? 7 : 7,
+      charLevel: isGolden ? 60 : 55,
+      skillLevel: 7,
       favorPoint: 0,
       equipLevel: isGolden ? 1 : 0,
     },
-    upgradeChessId: isGolden ? null : null,
+    upgradeChessId: isGolden ? null : goldenChessId,
     upgradeNum: isGolden ? 0 : 3,
     bondIds: [],
     garrisonIds: null,
@@ -185,7 +185,7 @@ export function ChessEditor({ store }: Props) {
       },
       charChessDataDict: {
         ...data.charChessDataDict,
-        [id]: makeDefaultChessData(id, maxIdentifier + 1, false),
+        [id]: makeDefaultChessData(id,goldenChessId, maxIdentifier + 1, false),
         [goldenId]: makeDefaultChessData(goldenId, maxIdentifier + 2, true),
       },
       chessNormalIdLookupDict: {
