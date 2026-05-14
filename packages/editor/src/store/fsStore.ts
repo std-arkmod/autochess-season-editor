@@ -20,6 +20,7 @@
  *     shopLevelDisplayDataDict/
  *     specialEnemyInfoDict/
  *     effectChoiceInfoDict/
+ *     buffTemplates/
  */
 
 import type { AutoChessSeasonData } from '@autochess-editor/shared'
@@ -48,6 +49,7 @@ const DICT_FIELDS: (keyof AutoChessSeasonData)[] = [
   'shopLevelDisplayDataDict',
   'specialEnemyInfoDict',
   'effectChoiceInfoDict',
+  'buffTemplates',
 ]
 
 /** project.json 里的扁平字段 */
