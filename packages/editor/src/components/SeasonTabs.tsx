@@ -45,6 +45,7 @@ const fieldLabelMap: Record<string, string> = {
   bossInfoDict: 'BOSS', garrisonDataDict: '干员特质', bandDataListDict: '赛段',
   stageDatasDict: '关卡数据', shopLevelDisplayDataDict: '商店等级显示',
   specialEnemyInfoDict: '特殊敌人', shopCharChessInfoData: '棋子商店信息',
+  buffTemplates: 'Buff 模板',
 }
 
 function FsSyncBadge({ status, progress }: { status: 'synced' | 'saving' | 'unsaved' | undefined; progress?: SaveProgress | null }) {

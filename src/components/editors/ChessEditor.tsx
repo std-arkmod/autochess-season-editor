@@ -62,6 +62,16 @@ const charIdOptions = Object.entries(characterNameMap as Record<string, string>)
   .map(([id, name]) => ({ value: id, label: `${name} (${id})` }))
   .sort((a, b) => a.label.localeCompare(b.label))
 
+function getGarrisonLabel(
+  garrisonDataDict: Props['store']['activeSeason']['data']['garrisonDataDict'] | undefined,
+  garrisonId: string,
+  maxLen: number,
+) {
+  const desc = garrisonDataDict?.[garrisonId]?.garrisonDesc
+  if (!desc) return garrisonId
+  return desc.replace(/<[^>]+>/g, '').slice(0, maxLen) || garrisonId
+}
+
 export function ChessEditor({ store }: Props) {
   const { activeSeason, activeSeasonId, updateSeason, focusId, setFocusId, navigateTo } = store
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -254,7 +264,7 @@ export function ChessEditor({ store }: Props) {
           value={chess.garrisonIds ?? []}
           data={Object.keys(garrisonDataDict ?? {}).map(id => ({
             value: id,
-            label: `${garrisonDataDict![id].garrisonDesc.replace(/<[^>]+>/g, '').slice(0, 25)} (${id})`,
+            label: `${getGarrisonLabel(garrisonDataDict, id, 25)} (${id})`,
           }))}
           onChange={v => patchChess(chessId, { garrisonIds: v.length > 0 ? v : null })}
           maxDropdownHeight={200}
@@ -263,7 +273,7 @@ export function ChessEditor({ store }: Props) {
           {(chess.garrisonIds ?? []).map(gid => (
             <Badge key={gid} variant="light" color="blue" size="sm" style={{ cursor: 'pointer' }}
               onClick={() => navigateTo('garrison', gid)}>
-              {garrisonDataDict?.[gid]?.garrisonDesc.replace(/<[^>]+>/g, '').slice(0, 20) ?? gid} ↗
+              {getGarrisonLabel(garrisonDataDict, gid, 20)} ↗
             </Badge>
           ))}
           {(chess.garrisonIds ?? []).length === 0 && <Text size="xs" c="dimmed">无特质</Text>}

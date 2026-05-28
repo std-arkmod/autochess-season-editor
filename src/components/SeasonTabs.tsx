@@ -26,6 +26,13 @@ import {
 
 interface Props { store: DataStore }
 
+function isEditableElement(target: EventTarget | null): target is HTMLElement {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
 function FsSyncBadge({ status }: { status: 'synced' | 'saving' | 'unsaved' | undefined }) {
   if (!status) return null
   const cfg = {
@@ -56,6 +63,7 @@ export function SeasonTabs({ store }: Props) {
 
   // 重新绑定目录提示 Modal（刷新后 fsHandle 丢失）
   const [rebindSeasonId, setRebindSeasonId] = useState<string | null>(null)
+  const [hasFocusedEditable, setHasFocusedEditable] = useState(false)
 
   // ─── FS 自动保存（全部用 ref，不触发 React 重渲染循环）───────────────────
   const seasonsRef = useRef(seasons)
@@ -67,8 +75,38 @@ export function SeasonTabs({ store }: Props) {
   // 每次渲染后同步 seasonsRef
   useEffect(() => { seasonsRef.current = seasons })
 
+  useEffect(() => {
+    const syncEditableFocus = () => {
+      setHasFocusedEditable(isEditableElement(document.activeElement))
+    }
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isEditableElement(event.target)) setHasFocusedEditable(true)
+    }
+
+    const handleFocusOut = () => {
+      // 等待浏览器先切换 activeElement，再判断是否仍停留在另一个输入控件上
+      window.setTimeout(syncEditableFocus, 0)
+    }
+
+    syncEditableFocus()
+    document.addEventListener('focusin', handleFocusIn)
+    document.addEventListener('focusout', handleFocusOut)
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn)
+      document.removeEventListener('focusout', handleFocusOut)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasFocusedEditable) return
+    Object.values(fsTimers.current).forEach(timer => clearTimeout(timer))
+    fsTimers.current = {}
+  }, [hasFocusedEditable])
+
   // 监听 isDirty 变化，触发防抖自动保存
   useEffect(() => {
+    if (hasFocusedEditable) return
     seasons.forEach(s => {
       if (!s.fsHandle || !s.isDirty || savingRef.current[s.id]) return
       if (fsTimers.current[s.id]) clearTimeout(fsTimers.current[s.id])
@@ -90,10 +128,10 @@ export function SeasonTabs({ store }: Props) {
         } finally {
           savingRef.current[s.id] = false
         }
-      }, 600)
+      }, 800)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seasons.map(s => `${s.id}:${s.isDirty}:${!!s.fsHandle}`).join('|')])
+  }, [hasFocusedEditable, seasons.map(s => `${s.id}:${s.isDirty}:${!!s.fsHandle}`).join('|')])
 
   // ─── Watch（外部变更检测）────────────────────────────────────────────────
   const watchCancels = useRef<Record<string, () => void>>({})

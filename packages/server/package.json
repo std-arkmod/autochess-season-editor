@@ -4,15 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node --env-file=.env dist/index.js",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/seed.ts",
-    "db:import": "tsx src/db/import-season.ts",
-    "db:reset": "tsx src/db/reset.ts",
-    "db:reset-import": "tsx src/db/reset.ts && tsx src/db/import-season.ts"
+    "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
+    "db:seed": "tsx --env-file=.env src/db/seed.ts",
+    "db:import": "tsx --env-file=.env src/db/import-season.ts",
+    "db:reset": "tsx --env-file=.env src/db/reset.ts",
+    "db:reset-import": "tsx --env-file=.env src/db/reset.ts && tsx --env-file=.env src/db/import-season.ts"
   },
   "dependencies": {
     "@autochess-editor/shared": "workspace:*",

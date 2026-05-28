@@ -366,7 +366,20 @@ function BandEditor({ store }: Props) {
       ...d,
       bandDataListDict: {
         ...d.bandDataListDict,
-        [id]: { bandId: id, sortId: nextSort, modeTypeList: ['SINGLE'], bandDesc: '', totalHp: 0, effectId: '', victorCount: 0, bandRewardModulus: 1 },
+        [id]: {
+            bandId: id,
+            sortId: nextSort,
+            modeTypeList: [
+                "SINGLE",
+                "MULTI"
+            ],
+            bandDesc: '',
+            totalHp: 20,
+            effectId: '',
+            victorCount: 3,
+            bandRewardModulus: 1,
+            updateTime: 1773475200
+        },
       },
     }))
     setEditingId(id); closeAdd(); setNewId('')
