@@ -185,8 +185,8 @@ export function ChessEditor({ store }: Props) {
       },
       charChessDataDict: {
         ...data.charChessDataDict,
-        [id]: makeDefaultChessData(id,goldenChessId, maxIdentifier + 1, false),
-        [goldenId]: makeDefaultChessData(goldenId,goldenChessId, maxIdentifier + 2, true),
+        [id]: makeDefaultChessData(id, goldenId, maxIdentifier + 1, false),
+        [goldenId]: makeDefaultChessData(goldenId, goldenId, maxIdentifier + 2, true),
       },
       chessNormalIdLookupDict: {
         ...data.chessNormalIdLookupDict,

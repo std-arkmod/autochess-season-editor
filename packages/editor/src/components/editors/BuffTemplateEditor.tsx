@@ -876,7 +876,7 @@ export function BuffTemplateEditor({ store, viewerOnly }: Props) {
       )}
 
       {/* Left: Template list */}
-      <ResizablePanel side="left" defaultWidth={220} minWidth={160} maxWidth={500}>
+      <ResizablePanel side="left" defaultWidth={260} minWidth={160} maxWidth={500}>
         {noSeason ? (
           <>
             {!viewerOnly && <Text size="xs" c="dimmed" ta="center" py={4}>未选择赛季，仅可浏览游戏参考</Text>}
