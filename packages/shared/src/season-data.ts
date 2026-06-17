@@ -28,7 +28,16 @@ export interface AutoChessSeasonData {
     playerTitleDataDict: PlayerTitleDataDict
     shopCharChessInfoData: { [key: string]: ShopCharChessInfoDatum[] }
     constData: ConstData
+    banConfig?: BanConfig
     buffTemplates?: { [key: string]: BuffTemplate }
+}
+
+export interface BanConfig {
+  immuneBonds?: string[]
+  coreBondIds?: string[]
+  minorBondIds?: string[]
+  coreBondBanCount?: number
+  minorBondBanCount?: number
 }
 
 export interface BuffTemplate {

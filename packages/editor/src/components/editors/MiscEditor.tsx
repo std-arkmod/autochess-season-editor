@@ -8,13 +8,13 @@ import {
   CollabEditingProvider,
 } from '../collab/CollabInputs'
 import { IconPlus, IconTrash } from '@tabler/icons-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type {
   SpecialEnemyInfoDict, TrSpecialEnemyTypeElement,
   BandDataListDict, StageDatasDict, TrainingNpcList,
-  MilestoneList, ItemType, ChoiceType, EffectType,
+  MilestoneList, ItemType, ChoiceType, EffectType, BanConfig,
 } from '@autochess-editor/shared'
 import { getCharName } from '@autochess-editor/shared'
 import type { DataStore } from '../../store/dataStore'
@@ -22,6 +22,7 @@ import type { DataStore } from '../../store/dataStore'
 interface Props { store: DataStore }
 
 const ENEMY_TYPES: TrSpecialEnemyTypeElement[] = ['FLY', 'TIMES', 'ELEMENT', 'DOT', 'INVISIBLE', 'REFLECTION', 'SPECIAL']
+const DEFAULT_CORE_BOND_IDS = ['yanShip', 'sargonShip', 'victoriaShip', 'kjeragShip', 'lateranoShip', 'egirShip', 'kazimierzShip', 'siracusaShip']
 
 export function MiscEditor({ store }: Props) {
   const { activeSeason, activeSeasonId, updateSeason } = store
@@ -43,6 +44,7 @@ export function MiscEditor({ store }: Props) {
         <Tabs.Tab value="milestone">里程碑</Tabs.Tab>
         <Tabs.Tab value="playerTitle">玩家称号</Tabs.Tab>
         <Tabs.Tab value="constData">常量</Tabs.Tab>
+        <Tabs.Tab value="banConfig">Ban</Tabs.Tab>
         <Tabs.Tab value="diy">DIY 棋子</Tabs.Tab>
         <Tabs.Tab value="effectChoice">效果选项</Tabs.Tab>
       </Tabs.List>
@@ -137,6 +139,10 @@ export function MiscEditor({ store }: Props) {
       {/* ── 常量 constData ── */}
       <Tabs.Panel value="constData">
         <ConstDataEditor store={store} />
+      </Tabs.Panel>
+
+      <Tabs.Panel value="banConfig">
+        <BanConfigEditor store={store} />
       </Tabs.Panel>
 
       {/* ── DIY 棋子 diyChessDict ── */}
@@ -955,6 +961,121 @@ function ConstDataEditor({ store }: Props) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BanConfigEditor: banConfig
+// ─────────────────────────────────────────────────────────────────────────────
+function BanConfigEditor({ store }: Props) {
+  const { activeSeason, activeSeasonId, updateSeason } = store
+  const banConfig = activeSeason?.data.banConfig
+  if (!activeSeason) return null
+
+  function patch(p: Partial<BanConfig>) {
+    updateSeason(activeSeasonId!, d => {
+      const next: BanConfig = { ...(d.banConfig ?? {}) }
+
+      if ('immuneBonds' in p) {
+        const immuneBonds = p.immuneBonds?.map(v => v.trim()).filter(Boolean) ?? []
+        if (immuneBonds.length > 0) next.immuneBonds = immuneBonds
+        else delete next.immuneBonds
+      }
+
+      if ('coreBondIds' in p) {
+        const coreBondIds = p.coreBondIds?.map(v => v.trim()).filter(Boolean) ?? []
+        if (coreBondIds.length > 0) next.coreBondIds = coreBondIds
+        else delete next.coreBondIds
+      }
+
+      if ('minorBondIds' in p) {
+        const minorBondIds = p.minorBondIds?.map(v => v.trim()).filter(Boolean) ?? []
+        if (minorBondIds.length > 0) next.minorBondIds = minorBondIds
+        else delete next.minorBondIds
+      }
+
+      if ('coreBondBanCount' in p) {
+        if (typeof p.coreBondBanCount === 'number') next.coreBondBanCount = p.coreBondBanCount
+        else delete next.coreBondBanCount
+      }
+
+      if ('minorBondBanCount' in p) {
+        if (typeof p.minorBondBanCount === 'number') next.minorBondBanCount = p.minorBondBanCount
+        else delete next.minorBondBanCount
+      }
+
+      if (Object.keys(next).length === 0) {
+        const { banConfig: _ignored, ...rest } = d
+        return rest
+      }
+
+      return { ...d, banConfig: next }
+    })
+  }
+
+  return (
+    <Stack gap="md">
+      <Title order={5}>Ban 配置（banConfig）</Title>
+      <Grid gutter="sm">
+        <Grid.Col span={12}>
+          <KeyListField
+            label="免疫禁用列表(immuneBonds)"
+            keys={banConfig?.immuneBonds ?? []}
+            collabPrefix="banConfig.immuneBonds"
+            preserveDraft
+            onChange={v => patch({ immuneBonds: v })}
+          />
+          <Text size="xs" c="dimmed">默认值：根据赛季而定，第一期值是助力协防远见，第二期值是绝技协防调和投资人。</Text>
+          <Text size="xs" c="dimmed">ACT1 `deputShip`, `emptyShip`, `visiShip` </Text>
+          <Text size="xs" c="dimmed">ACT2 `suntShip`, `emptyShip`, `maniShip`, `investShip` </Text>
+        </Grid.Col>
+        <Grid.Col span={12}>
+          <KeyListField
+            label="核心盟约列表(coreBondIds)"
+            keys={banConfig?.coreBondIds ?? DEFAULT_CORE_BOND_IDS}
+            collabPrefix="banConfig.coreBondIds"
+            preserveDraft
+            onChange={v => patch({ coreBondIds: v })}
+          />
+          <Text size="xs" c="dimmed">默认值：8 个核心盟约，未配置时先显示这 8 个默认项。</Text>
+          <Text size="xs" c="dimmed">`yanShip`, `sargonShip`, `victoriaShip`, `kjeragShip`, `lateranoShip`, `egirShip`, `kazimierzShip`, `siracusaShip`</Text>
+        </Grid.Col>
+        <Grid.Col span={12}>
+          <KeyListField
+            label="次要盟约列表(minorBondIds)"
+            keys={banConfig?.minorBondIds ?? []}
+            collabPrefix="banConfig.minorBondIds"
+            preserveDraft
+            onChange={v => patch({ minorBondIds: v })}
+          />
+          <Text size="xs" c="dimmed">可选，不填则自动从赛季所有羁绊中排除核心和免疫羁绊得到。填写后只从这些羁绊中抽取次要 ban。</Text>
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <Stack gap={4}>
+            <CNumberInput
+              label="主盟约禁用数(coreBondBanCount)"
+              collabField="banConfig.coreBondBanCount"
+              value={banConfig?.coreBondBanCount ?? ''}
+              min={0}
+              onChange={v => patch({ coreBondBanCount: v === '' ? undefined : Number(v) })}
+            />
+            <Text size="xs" c="dimmed">默认值：3，不配置 banConfig 时从核心盟约中随机 ban 3 个。</Text>
+          </Stack>
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <Stack gap={4}>
+            <CNumberInput
+              label="副盟约禁用数(minorBondBanCount)"
+              collabField="banConfig.minorBondBanCount"
+              value={banConfig?.minorBondBanCount ?? ''}
+              min={0}
+              onChange={v => patch({ minorBondBanCount: v === '' ? undefined : Number(v) })}
+            />
+            <Text size="xs" c="dimmed">默认值：4，不配置 banConfig 时从次要盟约中随机 ban 4 个。</Text>
+          </Stack>
+        </Grid.Col>
+      </Grid>
+    </Stack>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DiyChessEditor: diyChessDict
 // ─────────────────────────────────────────────────────────────────────────────
 function DiyChessEditor({ store }: Props) {
@@ -1139,21 +1260,44 @@ function EffectChoiceEditor({ store }: Props) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 公共辅助组件：可增删 string[] 的列表
 // ─────────────────────────────────────────────────────────────────────────────
-function KeyListField({ label, keys, onChange, collabPrefix }: { label: string; keys: string[]; onChange: (v: string[]) => void; collabPrefix?: string }) {
+function KeyListField({ label, keys, onChange, collabPrefix, preserveDraft }: { label: string; keys: string[]; onChange: (v: string[]) => void; collabPrefix?: string; preserveDraft?: boolean }) {
+  const [draft, setDraft] = useState<string[]>(keys)
+  const lastCommittedRef = useRef(JSON.stringify(keys))
+
+  useEffect(() => {
+    const incoming = JSON.stringify(keys)
+    if (incoming !== lastCommittedRef.current) {
+      setDraft(keys)
+      lastCommittedRef.current = incoming
+    }
+  }, [keys])
+
+  function commit(next: string[]) {
+    setDraft(next)
+    if (preserveDraft) {
+      const sanitized = next.map(v => v.trim()).filter(Boolean)
+      lastCommittedRef.current = JSON.stringify(sanitized)
+      onChange(sanitized)
+      return
+    }
+    lastCommittedRef.current = JSON.stringify(next)
+    onChange(next)
+  }
+
   return (
     <Stack gap="xs">
       {label && <Text size="sm" fw={500}>{label}</Text>}
-      {keys.map((k, i) => (
+      {draft.map((k, i) => (
         <Group key={i} gap="xs">
           <CTextInput size="xs" collabField={collabPrefix ? `${collabPrefix}[${i}]` : undefined} value={k} style={{ flex: 1 }}
-            onChange={e => { const n = [...keys]; n[i] = e.target.value; onChange(n) }} />
-          <ActionIcon size="xs" variant="subtle" color="red" onClick={() => onChange(keys.filter((_, j) => j !== i))}>
+            onChange={e => { const n = [...draft]; n[i] = e.target.value; commit(n) }} />
+          <ActionIcon size="xs" variant="subtle" color="red" onClick={() => commit(draft.filter((_, j) => j !== i))}>
             <IconTrash size={10} />
           </ActionIcon>
         </Group>
       ))}
       <Button size="xs" variant="subtle" leftSection={<IconPlus size={10} />} w="fit-content"
-        onClick={() => onChange([...keys, ''])}>添加</Button>
+        onClick={() => preserveDraft ? setDraft([...draft, '']) : onChange([...draft, ''])}>添加</Button>
     </Stack>
   )
 }

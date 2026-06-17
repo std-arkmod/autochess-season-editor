@@ -67,6 +67,7 @@ const CONST_FIELDS: (keyof AutoChessSeasonData)[] = [
   'difficultyFactorInfo',
   'playerTitleDataDict',
   'constData',
+  'banConfig',
 ]
 
 // ── helpers ──────────────────────────────────────────────────────────────────
